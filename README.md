@@ -15,6 +15,7 @@ A modern, real-time chat application built with Angular and WebSockets, featurin
 ## ✨ Features
 
 - **Real-time Messaging**: Instant message delivery using WebSockets
+- **WebSocket Test Component**: Test WebSocket connections and messages
 - **User Authentication**: Secure login and registration system
 - **Multiple Chat Rooms**: Create and join different chat rooms
 - **Online Status**: See who's online in real-time
@@ -39,15 +40,20 @@ A modern, real-time chat application built with Angular and WebSockets, featurin
    cd chat-flow
    ```
 
-2. Install dependencies:
+2. Install dependencies for both frontend and WebSocket server:
    ```bash
+   # Install frontend dependencies
    npm install
-   # or
-   yarn
+   
+   # Install WebSocket server dependencies
+   cd websocket-server
+   npm install
+   cd ..
    ```
 
 3. Configure environment variables:
-   Create a `src/environments/environment.ts` file based on `environment.example.ts`
+   - Frontend: Create a `src/environments/environment.ts` file based on `environment.example.ts`
+   - WebSocket server: Configure `websocket-server/.env` if needed
 
 4. Start the development server:
    ```bash
@@ -67,28 +73,49 @@ A modern, real-time chat application built with Angular and WebSockets, featurin
 
 ## 🛠 Development
 
-### Project Structure
+### Running the Application
 
+1. Start the WebSocket server (in a separate terminal):
+   ```bash
+   cd websocket-server
+   npm start
+   ```
+
+2. Start the Angular development server (in the project root):
+   ```bash
+   ng serve
+   ```
+
+3. Open your browser and navigate to `http://localhost:4200`
+
+### Testing WebSocket Connection
+
+1. Navigate to `http://localhost:4200/websocket-test`
+2. The test page shows connection status and allows you to:
+   - Test WebSocket connection
+   - Send test messages
+   - View message history
+
+### Testing with the Test Client
+
+A test client is available to verify WebSocket server functionality:
+
+```bash
+cd websocket-server
+node test-client.js
 ```
-src/
-├── app/
-│   ├── core/               # Core functionality and services
-│   ├── features/           # Feature modules
-│   │   ├── auth/           # Authentication
-│   │   ├── chat/           # Chat functionality
-│   │   └── profile/        # User profiles
-│   ├── layouts/            # Layout components
-│   └── shared/             # Shared components and utilities
-└── assets/                 # Static assets
+
+## 🧪 Testing
+
+Run unit tests:
+```bash
+ng test
 ```
 
-### Available Scripts
-
-- `ng serve` - Start development server
-- `ng build` - Build for production
-- `ng test` - Run unit tests
-- `ng e2e` - Run end-to-end tests
-- `ng lint` - Run linter
+Run end-to-end tests:
+```bash
+ng e2e
+```
 
 ## 🤝 Contributing
 
