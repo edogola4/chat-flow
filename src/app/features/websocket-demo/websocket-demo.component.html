@@ -1,0 +1,72 @@
+<div class="websocket-demo">
+  <mat-card class="demo-card">
+    <mat-card-header>
+      <mat-card-title>WebSocket Demo</mat-card-title>
+      <mat-card-subtitle>
+        Connection Status: 
+        <span [class.connected]="isConnected" [class.disconnected]="!isConnected">
+          {{ isConnected ? 'Connected' : 'Disconnected' }}
+        </span>
+      </mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <div class="message-form">
+        <mat-form-field appearance="outline" class="message-type">
+          <mat-label>Message Type</mat-label>
+          <input matInput [(ngModel)]="messageType" placeholder="e.g., chat, notification, command">
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" class="message-data">
+          <mat-label>Message Data (JSON or text)</mat-label>
+          <textarea 
+            matInput 
+            [(ngModel)]="messageData" 
+            placeholder="Enter message data as JSON or plain text"
+            rows="3">
+          </textarea>
+        </mat-form-field>
+
+        <div class="actions">
+          <button 
+            mat-raised-button 
+            color="primary" 
+            (click)="sendMessage()"
+            [disabled]="!isConnected">
+            <mat-icon>send</mat-icon>
+            Send Message
+          </button>
+          
+          <button 
+            mat-stroked-button 
+            color="accent" 
+            (click)="sendPing()"
+            [disabled]="!isConnected">
+            <mat-icon>network_ping</mat-icon>
+            Send Ping
+          </button>
+        </div>
+      </div>
+
+      <div class="message-log">
+        <h3>Message Log</h3>
+        <div class="log-entries">
+          <div *ngFor="let msg of messages" class="log-entry" [ngClass]="getMessageTypeClass(msg.type)">
+            <div class="log-header">
+              <span class="log-type">{{ msg.type | uppercase }}</span>
+              <span class="log-event">{{ msg.event }}</span>
+              <span class="log-time">{{ msg.timestamp | date:'shortTime' }}</span>
+            </div>
+            <div class="log-data">
+              <pre>{{ msg.data | json }}</pre>
+            </div>
+          </div>
+          
+          <div *ngIf="messages.length === 0" class="no-messages">
+            No messages sent or received yet
+          </div>
+        </div>
+      </div>
+    </mat-card-content>
+  </mat-card>
+</div>

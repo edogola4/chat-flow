@@ -1,0 +1,56 @@
+<div class="websocket-test">
+  <mat-card class="test-card">
+    <mat-card-header>
+      <mat-card-title>WebSocket Test</mat-card-title>
+      <mat-card-subtitle>
+        Connection Status: 
+        <span [class.connected]="isConnected" [class.disconnected]="!isConnected">
+          {{ isConnected ? 'Connected' : 'Disconnected' }}
+        </span>
+      </mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <div class="controls">
+        <button mat-raised-button 
+                color="primary" 
+                (click)="sendTestMessage()"
+                [disabled]="!isConnected">
+          <mat-icon>send</mat-icon>
+          Send Test Message
+        </button>
+        
+        <button mat-stroked-button 
+                [color]="isConnected ? 'warn' : 'accent'"
+                (click)="toggleConnection()">
+          <mat-icon>{{ isConnected ? 'link_off' : 'link' }}</mat-icon>
+          {{ isConnected ? 'Disconnect' : 'Connect' }}
+        </button>
+      </div>
+
+      <div class="message-log">
+        <h3>Message Log</h3>
+        <mat-list class="log-entries">
+          <mat-list-item *ngFor="let msg of messages" class="log-entry" [ngClass]="msg.type">
+            <div class="log-content">
+              <div class="log-header">
+                <span class="log-type">{{ msg.type | uppercase }}</span>
+                <span class="log-time">{{ msg.timestamp | date:'shortTime' }}</span>
+              </div>
+              <div class="log-message">
+                <pre>{{ msg.message }}</pre>
+              </div>
+            </div>
+          </mat-list-item>
+          
+          <mat-list-item *ngIf="messages.length === 0" class="no-messages">
+            <div class="no-messages-content">
+              <mat-icon>info</mat-icon>
+              <span>No messages yet. Send a test message to begin.</span>
+            </div>
+          </mat-list-item>
+        </mat-list>
+      </div>
+    </mat-card-content>
+  </mat-card>
+</div>
