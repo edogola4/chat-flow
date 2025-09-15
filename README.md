@@ -24,23 +24,45 @@ A modern, real-time chat application built with Angular and WebSockets, featurin
 - **Themes**: Switch between light and dark mode
 - **Responsive Design**: Works on desktop and mobile devices
 
-## 🚀 Getting Started
+## 🌟 WebSocket Implementation
+
+ChatFlow uses WebSockets for real-time communication between clients and the server. The implementation includes:
+
+### WebSocket Service
+- Connection management with automatic reconnection
+- Message queuing when offline
+- Type-safe message handling
+- Connection status monitoring
+
+### Server-Side (WebSocket Server)
+- Node.js WebSocket server running on port 3001
+- Handles multiple client connections
+- Broadcasts messages to all connected clients
+- Supports ping/pong for connection health checking
+
+### Key Features
+- **Real-time Messaging**: Instant message delivery between clients
+- **Connection Management**: Automatic reconnection on disconnect
+- **Message Broadcasting**: Send messages to all connected clients
+- **Type Safety**: Strongly typed messages with TypeScript
+- **Error Handling**: Comprehensive error handling and logging
+
+## 🚀 Quick Start
 
 ### Prerequisites
-
-- Node.js (v16 or later)
-- npm (v8 or later) or yarn
+- Node.js (v18 or later)
+- npm (v9 or later)
 - Angular CLI (v19 or later)
 
-### Installation
+### Setup
 
-1. Clone the repository:
+1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/chat-flow.git
+   git clone https://github.com/edogola4/chat-flow.git
    cd chat-flow
    ```
 
-2. Install dependencies for both frontend and WebSocket server:
+2. **Install dependencies**
    ```bash
    # Install frontend dependencies
    npm install
@@ -51,80 +73,108 @@ A modern, real-time chat application built with Angular and WebSockets, featurin
    cd ..
    ```
 
-3. Configure environment variables:
-   - Frontend: Create a `src/environments/environment.ts` file based on `environment.example.ts`
-   - WebSocket server: Configure `websocket-server/.env` if needed
-
-4. Start the development server:
+3. **Start the servers**
    ```bash
-   ng serve
-   ```
-
-5. Open your browser and navigate to `http://localhost:4200/`
-
-## 🛠 Tech Stack
-
-[![Angular](https://img.shields.io/badge/Angular-19.1.7-DD0031?logo=angular&logoColor=white)](https://angular.io/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.1.6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![RxJS](https://img.shields.io/badge/RxJS-7.8.0-B7178C?logo=reactivex&logoColor=white)](https://rxjs.dev/)
-[![Node.js](https://img.shields.io/badge/Node.js-18.16.0-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Jasmine](https://img.shields.io/badge/Jasmine-4.6.0-8A4182?logo=jasmine&logoColor=white)](https://jasmine.github.io/)
-[![Karma](https://img.shields.io/badge/Karma-6.4.0-EB3E3E?logo=karma&logoColor=white)](https://karma-runner.github.io/)
-
-## 🛠 Development
-
-### Running the Application
-
-1. Start the WebSocket server (in a separate terminal):
-   ```bash
+   # Start WebSocket server (in a new terminal)
    cd websocket-server
    npm start
-   ```
-
-2. Start the Angular development server (in the project root):
-   ```bash
+   
+   # Start Angular development server (in a new terminal)
    ng serve
    ```
 
-3. Open your browser and navigate to `http://localhost:4200`
+4. **Open the application**
+   ```
+   http://localhost:4200
+   ```
 
-### Testing WebSocket Connection
+## 🧪 Testing WebSocket Connection
 
 1. Navigate to `http://localhost:4200/websocket-test`
-2. The test page shows connection status and allows you to:
-   - Test WebSocket connection
-   - Send test messages
-   - View message history
+2. The test interface will show:
+   - Connection status
+   - Message log
+   - Controls to send test messages
+   - Connection statistics
 
-### Testing with the Test Client
-
-A test client is available to verify WebSocket server functionality:
+### Test Client
+A test client is included in `websocket-server/test-client.js` for testing the WebSocket server directly:
 
 ```bash
-cd websocket-server
+# In the websocket-server directory
 node test-client.js
 ```
 
-## 🧪 Testing
+## 📁 Project Structure
 
-Run unit tests:
-```bash
-ng test
+```
+chat-flow/
+├── src/                         # Angular application
+│   ├── app/
+│   │   ├── core/
+│   │   │   └── services/
+│   │   │       └── websocket.service.ts  # WebSocket service
+│   │   └── features/
+│   │       ├── websocket-test/          # WebSocket test component
+│   │       └── chat/                    # Chat components
+│   └── shared/
+│       └── models/
+│           └── websocket-message.model.ts  # Message types
+└── websocket-server/             # WebSocket server
+    ├── server.js                 # WebSocket server implementation
+    ├── test-client.js            # Test client
+    └── package.json              # Server dependencies
 ```
 
-Run end-to-end tests:
-```bash
-ng e2e
+## 📚 Documentation
+
+### WebSocket Message Types
+
+```typescript
+interface WebSocketMessage<T = any> {
+  type: WebSocketMessageType | string;
+  payload: T;
+  timestamp: string;
+  requestId?: string;
+}
+
+enum WebSocketMessageType {
+  // Authentication
+  AUTHENTICATE = 'AUTHENTICATE',
+  AUTHENTICATED = 'AUTHENTICATED',
+  UNAUTHORIZED = 'UNAUTHORIZED',
+  
+  // Connection
+  CONNECTION_ESTABLISHED = 'CONNECTION_ESTABLISHED',
+  PING = 'PING',
+  PONG = 'PONG',
+  
+  // Messages
+  MESSAGE_SENT = 'MESSAGE_SENT',
+  MESSAGE_RECEIVED = 'MESSAGE_RECEIVED',
+  MESSAGE_UPDATED = 'MESSAGE_UPDATED',
+  MESSAGE_DELETED = 'MESSAGE_DELETED',
+  MESSAGE_BROADCAST = 'MESSAGE_BROADCAST',
+  
+  // Typing indicators
+  TYPING_START = 'TYPING_START',
+  TYPING_END = 'TYPING_END',
+  
+  // Room events
+  ROOM_JOINED = 'ROOM_JOINED',
+  ROOM_LEFT = 'ROOM_LEFT',
+  
+  // Error
+  ERROR = 'ERROR'
+}
 ```
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please follow these steps:
-
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
 ## 📄 License
