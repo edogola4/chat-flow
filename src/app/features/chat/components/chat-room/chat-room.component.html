@@ -1,0 +1,49 @@
+<div class="chat-container">
+  <mat-card class="chat-card">
+    <mat-card-header>
+      <mat-card-title>Chat Room: {{ roomId }}</mat-card-title>
+      <mat-card-subtitle>
+        <span [class.connected]="isConnected" [class.disconnected]="!isConnected">
+          {{ isConnected ? 'Connected' : 'Disconnected' }}
+        </span>
+        • {{ username }}
+      </mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <div class="messages-container" id="messageContainer">
+        <div *ngFor="let message of messages" class="message" [class.sent]="message.sender === username">
+          <div class="message-header">
+            <span class="sender">{{ message.sender }}</span>
+            <span class="timestamp">{{ message.timestamp | date:'shortTime' }}</span>
+          </div>
+          <div class="message-content">{{ message.content }}</div>
+        </div>
+        
+        <div *ngIf="messages.length === 0" class="no-messages">
+          No messages yet. Say hello!
+        </div>
+      </div>
+
+      <div class="message-input">
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Type your message</mat-label>
+          <input 
+            matInput 
+            [(ngModel)]="newMessage" 
+            (keydown.enter)="$event.preventDefault(); sendMessage()"
+            [disabled]="!isConnected"
+            placeholder="Type your message here...">
+          <button 
+            mat-icon-button 
+            matSuffix 
+            color="primary" 
+            [disabled]="!newMessage.trim() || !isConnected"
+            (click)="sendMessage()">
+            <mat-icon>send</mat-icon>
+          </button>
+        </mat-form-field>
+      </div>
+    </mat-card-content>
+  </mat-card>
+</div>
