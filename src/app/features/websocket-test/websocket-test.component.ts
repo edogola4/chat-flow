@@ -40,29 +40,43 @@ export class WebsocketTestComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit(): void {
-    this.websocketService.getConnectionStatus()
+    this.websocketService.connectionStatus$
       .pipe(takeUntil(this.destroy$))
-      .subscribe(connected => {
+      .subscribe((connected: boolean) => {
         this.isConnected = connected;
         this.addSystemMessage(`WebSocket ${connected ? 'connected' : 'disconnected'}`);
       });
 
-    this.websocketService.onMessage()
+    this.websocketService.messages$
       .pipe(takeUntil(this.destroy$))
-      .subscribe(message => {
+      .subscribe((message: WebSocketMessage) => {
         this.addMessage('received', JSON.stringify(message));
       });
   }
 
   sendTestMessage(): void {
-    const testMessage = { text: 'Hello WebSocket!', timestamp: new Date().toISOString() };
-    this.websocketService.sendMessage('test', testMessage)
+    const testMessage: WebSocketMessage = {
+      type: 'test',
+      data: { 
+        text: 'Hello WebSocket!', 
+        timestamp: new Date().toISOString() 
+      }
+    };
+    
+    this.websocketService.sendMessage(testMessage)
       .pipe(takeUntil(this.destroy$))
       .subscribe({
-        next: () => {
-          this.addMessage('sent', JSON.stringify(testMessage));
+        next: (success: boolean) => {
+          if (success) {
+            this.addMessage('sent', JSON.stringify(testMessage));
+            this.snackBar.open('Test message sent', 'Close', { duration: 2000 });
+          } else {
+            this.snackBar.open('Message queued for sending when connected', 'Close', {
+              duration: 2000
+            });
+          }
         },
-        error: (err) => {
+        error: (err: Error) => {
           this.snackBar.open(`Failed to send message: ${err.message}`, 'Close', {
             duration: 3000
           });

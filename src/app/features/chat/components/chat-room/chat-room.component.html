@@ -12,9 +12,9 @@
 
     <mat-card-content>
       <div class="messages-container" id="messageContainer">
-        <div *ngFor="let message of messages" class="message" [class.sent]="message.sender === username">
+        <div *ngFor="let message of messages" class="message" [class.sent]="message.senderId === currentUser?.id">
           <div class="message-header">
-            <span class="sender">{{ message.sender }}</span>
+            <span class="sender">{{ getUsername(message.senderId) }}</span>
             <span class="timestamp">{{ message.timestamp | date:'shortTime' }}</span>
           </div>
           <div class="message-content">{{ message.content }}</div>
@@ -31,15 +31,14 @@
           <input 
             matInput 
             [(ngModel)]="newMessage" 
-            (keydown.enter)="$event.preventDefault(); sendMessage()"
+            (keydown.enter)="sendMessage()"
             [disabled]="!isConnected"
-            placeholder="Type your message here...">
+            name="messageInput">
           <button 
-            mat-icon-button 
             matSuffix 
-            color="primary" 
-            [disabled]="!newMessage.trim() || !isConnected"
-            (click)="sendMessage()">
+            mat-icon-button 
+            (click)="sendMessage()"
+            [disabled]="!newMessage.trim() || !isConnected">
             <mat-icon>send</mat-icon>
           </button>
         </mat-form-field>

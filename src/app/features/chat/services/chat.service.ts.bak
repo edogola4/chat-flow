@@ -1,0 +1,539 @@
+import { Injectable, OnDestroy } from '@angular/core';
+import { BehaviorSubject, Observable, Subject, Subscription, combineLatest, of, forkJoin } from 'rxjs';
+import { 
+  map, 
+  filter, 
+  scan, 
+  shareReplay, 
+  distinctUntilChanged,
+  debounceTime,
+  switchMap,
+  takeUntil,
+  tap,
+  catchError,
+  take,
+  first
+} from 'rxjs/operators';
+import { WebsocketService } from './websocket.service';
+import { User } from '../models/chat.model';
+
+export interface ChatMessage {
+  id: string;
+  content: string;
+  type: 'text' | 'image' | 'file' | 'system';
+  senderId: string;
+  senderName: string;
+  senderAvatar?: string;
+  roomId: string;
+  timestamp: Date;
+  edited?: boolean;
+  editedAt?: Date;
+  reactions: { emoji: string; userId: string; username: string }[];
+  attachments: { id: string; name: string; size: number; type: string; url: string }[];
+  replyTo?: string;
+}
+
+export interface ChatRoom {
+  id: string;
+  name: string;
+  description?: string;
+  avatar?: string;
+  type: 'public' | 'private' | 'direct';
+  createdBy: string;
+  createdAt: Date;
+  lastMessage?: ChatMessage;
+  unreadCount: number;
+  members: { userId: string; username: string; role: 'admin' | 'moderator' | 'member' }[];
+  isArchived: boolean;
+}
+
+interface ChatState {
+  rooms: ChatRoom[];
+  messages: { [roomId: string]: ChatMessage[] };
+  activeRoomId: string | null;
+  users: { id: string; username: string; status: 'online' | 'away' | 'busy' | 'offline'; lastSeen?: Date; isTyping?: boolean }[];
+  typingUsers: { [roomId: string]: { [userId: string]: boolean } };
+}
+
+@Injectable({
+  providedIn: 'root'
+})
+export class ChatService implements OnDestroy {
+  private destroy$ = new Subject<void>();
+  
+  private stateSubject = new BehaviorSubject<ChatState>({
+    rooms: [],
+    messages: {},
+    activeRoomId: null,
+    users: [],
+    typingUsers: {}
+  });
+
+  public state$ = this.stateSubject.asObservable();
+  public rooms$ = this.state$.pipe(
+    map(state => state.rooms),
+    distinctUntilChanged(),
+    shareReplay(1)
+  );
+
+  public activeRoom$ = combineLatest([
+    this.rooms$,
+    this.state$.pipe(map(state => state.activeRoomId))
+  ]).pipe(
+    map(([rooms, activeRoomId]) => rooms.find(room => room.id === activeRoomId) || null),
+    distinctUntilChanged(),
+    shareReplay(1)
+  );
+
+  public activeRoomMessages$ = combineLatest([
+    this.state$,
+    this.state$.pipe(map(state => state.activeRoomId))
+  ]).pipe(
+    map(([state, activeRoomId]) => 
+      activeRoomId ? state.messages[activeRoomId] || [] : []
+    ),
+    distinctUntilChanged(),
+    shareReplay(1)
+  );
+
+  public onlineUsers$ = this.state$.pipe(
+    map(state => state.users.filter(user => user.status === 'online')),
+    distinctUntilChanged(),
+    shareReplay(1)
+  );
+
+  public typingUsers$ = this.state$.pipe(
+    map(state => {
+      const activeRoomId = state.activeRoomId;
+      return activeRoomId ? state.typingUsers[activeRoomId] || {} : {};
+    }),
+    distinctUntilChanged()
+  );
+
+  constructor(private websocketService: WebsocketService) {
+    this.initializeWebSocketListeners();
+    this.loadInitialData();
+  }
+
+  // Public API methods
+  sendMessage(content: string, roomId: string): Observable<boolean> {
+    return new Observable(observer => {
+      try {
+        const message = {
+          roomId,
+          message: content,
+          username: this.getCurrentUserName()
+        };
+        
+        this.websocketService.sendMessage('CHAT_MESSAGE', message).subscribe({
+          next: () => {
+            // Add the message to the local state
+            const chatMessage: ChatMessage = {
+              id: this.generateId(),
+              content: message.message,
+              type: 'text',
+              senderId: this.getCurrentUserId(),
+              senderName: message.username,
+              roomId: message.roomId,
+              timestamp: new Date(),
+              reactions: [],
+              attachments: []
+            };
+            this.addMessageToRoom(chatMessage);
+            observer.next(true);
+            observer.complete();
+          },
+          error: (error) => {
+            console.error('Error sending message:', error);
+            observer.error(error);
+          }
+        });
+      } catch (error) {
+        console.error('Error creating message:', error);
+        observer.error(error);
+      }
+    });
+  }
+
+  setActiveRoom(roomId: string): void {
+    this.stateSubject.next({
+      ...this.stateSubject.value,
+      activeRoomId: roomId
+    });
+    
+    // Mark messages as read
+    this.markRoomAsRead(roomId);
+    
+    // Notify server we're joining the room
+    this.websocketService.sendMessage('JOIN_ROOM', { roomId });
+  }
+
+  createRoom(name: string, type: 'public' | 'private' | 'direct'): Observable<boolean> {
+    return new Observable(subscriber => {
+      const newRoom: ChatRoom = {
+        id: this.generateId(),
+        name,
+        type,
+        createdBy: this.getCurrentUserId(),
+        createdAt: new Date(),
+        unreadCount: 0,
+        members: [],
+        isArchived: false
+      };
+      
+      // Simulate API call
+      setTimeout(() => {
+        const currentState = this.stateSubject.value;
+        this.stateSubject.next({
+          ...currentState,
+          rooms: [...currentState.rooms, newRoom]
+        });
+        
+        subscriber.next(true);
+        subscriber.complete();
+      }, 300);
+    });
+  }
+
+  getMessagesForRoom(roomId: string): Observable<ChatMessage[]> {
+    return this.state$.pipe(
+      map(state => state.messages[roomId] || [])
+    );
+  }
+
+  joinRoom(roomId: string, username: string): Observable<boolean> {
+    return new Observable(observer => {
+      try {
+        // First, update the local state to reflect we're joining a room
+        const currentState = this.stateSubject.value;
+        
+        // Add the room if it doesn't exist
+        const roomExists = currentState.rooms.some(room => room.id === roomId);
+        if (!roomExists) {
+          const newRoom: ChatRoom = {
+            id: roomId,
+            name: roomId, // Using roomId as name for simplicity
+            type: 'public',
+            createdBy: this.getCurrentUserId(),
+            createdAt: new Date(),
+            unreadCount: 0,
+            members: [{
+              userId: this.getCurrentUserId(),
+              username: username,
+              role: 'member'
+            }],
+            isArchived: false
+          };
+          
+          this.stateSubject.next({
+            ...currentState,
+            rooms: [...currentState.rooms, newRoom],
+            activeRoomId: roomId
+          });
+        } else {
+          // Just update the active room
+          this.stateSubject.next({
+            ...currentState,
+            activeRoomId: roomId
+          });
+        }
+        
+        // Then send the JOIN_ROOM message to the server
+        this.websocketService.sendMessage('JOIN_ROOM', { roomId, username }).subscribe({
+          next: () => {
+            console.log(`Successfully joined room ${roomId} as ${username}`);
+            observer.next(true);
+            observer.complete();
+          },
+          error: (error) => {
+            console.error('Error joining room:', error);
+            observer.error(error);
+          }
+        });
+      } catch (error) {
+        console.error('Error in joinRoom:', error);
+        observer.error(error);
+      }
+    });
+  }
+
+  get connectionStatus$(): Observable<boolean> {
+    // Check if the WebSocket service has a connection status observable
+    if ('connectionStatus$' in this.websocketService) {
+      return (this.websocketService as any).connectionStatus$;
+    }
+    
+    // Fallback to a default value if the WebSocket service doesn't have connection status
+    return new BehaviorSubject<boolean>(false).asObservable();
+  }
+
+  // Helper methods
+  private addMessageToRoom(message: ChatMessage): void {
+    const currentState = this.stateSubject.value;
+    const roomMessages = currentState.messages[message.roomId] || [];
+    
+    this.stateSubject.next({
+      ...currentState,
+      messages: {
+        ...currentState.messages,
+        [message.roomId]: [...roomMessages, message]
+      }
+    });
+  }
+
+  private markRoomAsRead(roomId: string): void {
+    const currentState = this.stateSubject.value;
+    const updatedRooms = currentState.rooms.map(room => 
+      room.id === roomId ? { ...room, unreadCount: 0 } : room
+    );
+    
+    this.stateSubject.next({
+      ...currentState,
+      rooms: updatedRooms
+    });
+  }
+
+  private initializeWebSocketListeners(): void {
+    // Listen for new messages
+    this.websocketService.onMessage('NEW_MESSAGE')
+      .pipe(
+        filter((msg): msg is { type: 'NEW_MESSAGE'; payload: ChatMessage } => 
+          this.isChatMessage(msg.payload)
+        ),
+        takeUntil(this.destroy$)
+      )
+      .subscribe(({ payload }) => {
+        this.addMessageToRoom(payload);
+      });
+
+    // Listen for user status updates
+    this.websocketService.onMessage('USER_STATUS_UPDATE')
+      .pipe(
+        filter((msg): msg is { type: 'USER_STATUS_UPDATE'; payload: { userId: string; status: 'online' | 'away' | 'busy' | 'offline' } } => 
+          msg.payload && 
+          typeof msg.payload.userId === 'string' && 
+          ['online', 'away', 'busy', 'offline'].includes(msg.payload.status)
+        ),
+        takeUntil(this.destroy$)
+      )
+      .subscribe(({ payload: { userId, status } }) => {
+        this.updateUserStatus(userId, status);
+      });
+
+    // Listen for typing indicators
+    this.websocketService.onMessage('TYPING_INDICATOR')
+      .pipe(
+        filter((msg): msg is { type: 'TYPING_INDICATOR'; payload: { userId: string; roomId: string; isTyping: boolean } } => 
+          msg.payload && 
+          typeof msg.payload.userId === 'string' && 
+          typeof msg.payload.roomId === 'string' &&
+          typeof msg.payload.isTyping === 'boolean'
+        ),
+        takeUntil(this.destroy$)
+      )
+      .subscribe(({ payload: { userId, roomId, isTyping } }) => {
+        this.updateTypingStatus(userId, roomId, isTyping);
+      });
+
+    // Listen for room updates
+    this.websocketService.onMessage('ROOM_UPDATED')
+      .pipe(
+        filter((msg): msg is { type: 'ROOM_UPDATED'; payload: ChatRoom } => 
+          this.isChatRoom(msg.payload)
+        ),
+        takeUntil(this.destroy$)
+      )
+      .subscribe(({ payload: room }) => {
+        this.updateRoom(room);
+      });
+      
+    // Listen for room creation
+    this.websocketService.onMessage('ROOM_CREATED')
+      .pipe(
+        filter((msg): msg is { type: 'ROOM_CREATED'; payload: ChatRoom } => 
+          this.isChatRoom(msg.payload)
+        ),
+        takeUntil(this.destroy$)
+      )
+      .subscribe(({ payload: room }) => this.updateRoom(room));
+
+    // Listen for room deletion
+    this.websocketService.onMessage('ROOM_DELETED')
+      .pipe(
+        filter((msg): msg is { type: 'ROOM_DELETED'; payload: { roomId: string } } => 
+          msg.payload && 
+          typeof msg.payload.roomId === 'string'
+        ),
+        takeUntil(this.destroy$)
+      )
+      .subscribe(({ payload: { roomId } }) => this.removeRoom(roomId));
+  }
+
+  private loadInitialData(): void {
+    const subscription = this.websocketService.connectionStatus$
+      .pipe(
+        filter(isConnected => isConnected),
+        first(),
+        takeUntil(this.destroy$)
+      )
+      .subscribe({
+        next: () => {
+          this.loadData();
+          subscription.unsubscribe();
+        },
+        error: (error) => {
+          console.error('Error in loadInitialData:', error);
+          subscription.unsubscribe();
+        }
+      });
+  }
+
+  private getRooms(): Observable<ChatRoom[]> {
+    // In a real app, this would make a WebSocket request to fetch rooms
+    // For now, return mock data or an empty array
+    return of([
+      {
+        id: '1',
+        name: 'General',
+        type: 'public',
+        createdBy: 'system',
+        createdAt: new Date(),
+        unreadCount: 0,
+        members: [],
+        isArchived: false
+      }
+    ] as ChatRoom[]);
+  }
+
+  private getUsers(): Observable<Array<{id: string, username: string, status: 'online' | 'away' | 'busy' | 'offline'}>> {
+    // In a real app, this would make a WebSocket request to fetch users
+    // For now, return mock data or an empty array
+    return of([
+      {
+        id: '1',
+        username: 'User1',
+        status: 'online' as const
+      }
+    ]);
+  }
+
+  private loadData(): void {
+    forkJoin([
+      this.getRooms(),
+      this.getUsers()
+    ]).subscribe({
+      next: ([rooms, users]) => {
+        this.stateSubject.next({
+          ...this.stateSubject.value,
+          rooms: rooms,
+          users: users
+        });
+      },
+      error: (error) => {
+        console.error('Error loading initial data:', error);
+      }
+    });
+  }
+
+  private addMessage(message: ChatMessage): void {
+    const currentState = this.stateSubject.value;
+    const roomMessages = currentState.messages[message.roomId] || [];
+    
+    if (roomMessages.some(m => m.id === message.id)) {
+      return; // Prevent duplicates
+    }
+
+    const updatedMessages = {
+      ...currentState.messages,
+      [message.roomId]: [...roomMessages, message]
+        .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+    };
+
+    this.stateSubject.next({
+      ...currentState,
+      messages: updatedMessages
+    });
+  }
+
+  private removeMessage(messageId: string, roomId: string): void {
+    const currentState = this.stateSubject.value;
+    const roomMessages = currentState.messages[roomId] || [];
+    
+    const updatedMessages = {
+      ...currentState.messages,
+      [roomId]: roomMessages.filter(m => m.id !== messageId)
+    };
+
+    this.stateSubject.next({
+      ...currentState,
+      messages: updatedMessages
+    });
+  }
+
+  private updateUserStatus(userId: string, status: 'online' | 'away' | 'busy' | 'offline'): void {
+    const currentState = this.stateSubject.value;
+    const updatedUsers = currentState.users.map(user =>
+    const currentState = this.stateSubject.value;
+    const currentTyping = currentState.typingUsers[roomId] || {};
+    
+    const updatedTyping = isTyping
+      ? { ...currentTyping, [userId]: true }
+      : Object.fromEntries(
+          Object.entries(currentTyping).filter(([id]) => id !== userId)
+        );
+
+    this.stateSubject.next({
+      ...currentState,
+      typingUsers: {
+        ...currentState.typingUsers,
+        [roomId]: updatedTyping
+      }
+    });
+  }
+
+  // Make currentUserId public with a getter for external access
+  private _currentUserId = 'user-' + Math.random().toString(36).substr(2, 9);
+  
+  // Public getter for current user ID
+  getCurrentUserId(): string {
+    return this._currentUserId;
+  }
+
+  // Remove the old getCurrentUserId method
+  // private getCurrentUserId(): string {
+  //   // TODO: Implement actual auth service integration
+  //   return 'current-user-id';
+  // }
+
+  // ... (rest of the code remains the same)
+
+  private getCurrentUserName(): string {
+    // TODO: Implement actual auth service integration
+    return 'Current User';
+  }
+
+  private isChatMessage(message: any): message is ChatMessage {
+    return (
+      message &&
+      typeof message.id === 'string' &&
+      typeof message.content === 'string' &&
+      typeof message.senderId === 'string' &&
+      typeof message.roomId === 'string' &&
+      message.timestamp instanceof Date
+    );
+  }
+
+  private isChatRoom(room: any): room is ChatRoom {
+    return (
+      room &&
+      typeof room.id === 'string' &&
+      typeof room.name === 'string' &&
+      Array.isArray(room.members)
+    );
+  }
+
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+}

@@ -1,12 +1,12 @@
 export interface User {
   id: string;
   username: string;
-  email: string;
+  email?: string;
   avatar?: string;
-  status: UserStatus;
-  lastSeen: Date;
+  status: 'online' | 'away' | 'busy' | 'offline';
+  lastSeen?: Date;
+  displayName?: string;
   isTyping?: boolean;
-  preferences?: UserPreferences;
 }
 
 export enum UserStatus {

@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
+import { WebSocketMessage } from '../../core/services/websocket.service';
 import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatListModule } from '@angular/material/list';
@@ -50,15 +51,15 @@ export class WebsocketDemoComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     // Listen for connection status changes
-    this.websocketService.getConnectionStatus()
+    this.websocketService.connectionStatus$
       .pipe(takeUntil(this.destroy$))
-      .subscribe(connected => {
+      .subscribe((connected: boolean) => {
         this.isConnected = connected;
         this.logMessage('system', `WebSocket ${connected ? 'connected' : 'disconnected'}`);
       });
 
     // Listen for all messages
-    this.websocketService.onMessageType('*')
+    this.websocketService.messages$
       .pipe(takeUntil(this.destroy$))
       .subscribe((message: any) => {
         this.logMessage('received', message.type, message);
@@ -72,28 +73,45 @@ export class WebsocketDemoComponent implements OnInit, OnDestroy {
     }
 
     const data = this.parseMessageData(this.messageData);
+    const message: WebSocketMessage = {
+      type: this.messageType,
+      data: data
+    };
     
-    this.websocketService.sendMessage(this.messageType, data)
+    this.websocketService.sendMessage(message)
       .pipe(takeUntil(this.destroy$))
       .subscribe({
-        next: (response) => {
-          this.logMessage('sent', this.messageType, data);
-          this.snackBar.open('Message sent successfully', 'Close', { duration: 2000 });
+        next: (success) => {
+          if (success) {
+            this.logMessage('sent', this.messageType, data);
+            this.snackBar.open('Message sent successfully', 'Close', { duration: 2000 });
+          } else {
+            this.snackBar.open('Message queued for sending when connected', 'Close', { duration: 2000 });
+          }
         },
-        error: (error) => {
+        error: (error: Error) => {
           this.snackBar.open(`Error: ${error.message}`, 'Close', { duration: 3000 });
         }
       });
   }
 
   sendPing(): void {
-    this.websocketService.sendMessage('PING', { timestamp: new Date().toISOString() })
+    const pingMessage: WebSocketMessage = {
+      type: 'PING',
+      data: { timestamp: new Date().toISOString() }
+    };
+    
+    this.websocketService.sendMessage(pingMessage)
       .pipe(takeUntil(this.destroy$))
       .subscribe({
-        next: (response) => {
-          this.logMessage('sent', 'PING', {});
+        next: (success: boolean) => {
+          if (success) {
+            this.logMessage('sent', 'PING', pingMessage.data);
+          } else {
+            this.snackBar.open('Ping queued for sending when connected', 'Close', { duration: 2000 });
+          }
         },
-        error: (error) => {
+        error: (error: Error) => {
           this.snackBar.open(`Ping failed: ${error.message}`, 'Close', { duration: 3000 });
         }
       });
