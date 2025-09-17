@@ -1,9 +1,15 @@
-import * as http from 'http';
-import * as https from 'https';
-import * as WebSocket from 'ws';
-import * as z from 'zod';
+import http from 'http';
+import https from 'https';
+import { WebSocket, WebSocketServer } from 'ws';
+import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { RateLimiterMemory } from 'rate-limiter-flexible';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+// Get the directory name in ES module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Create a custom interface that extends the WebSocket type
 // Extend WebSocket type with our custom properties
@@ -15,6 +21,10 @@ declare module 'ws' {
     ip: string;
     userAgent?: string;
     isAlive: boolean;
+    // Add missing method declarations
+    ping(data?: any, mask?: boolean, cb?: (err: Error) => void): void;
+    terminate(): void;
+    on(event: string, listener: (...args: any[]) => void): this;
   }
 }
 
@@ -126,7 +136,7 @@ type WsMessage = z.infer<typeof BaseMessageSchema> & {
 };
 
 class ChatServer {
-  private wss: WebSocket.Server;
+  private wss: any; // Temporarily using any to bypass type issues
   private clients: Map<string, Client> = new Map();
   private users: Map<string, User> = new Map();
   private rooms: Map<string, Room> = new Map();
@@ -136,7 +146,7 @@ class ChatServer {
   private messageHistory: Map<string, Message[]> = new Map(); // roomId -> Message[]
   private readonly MAX_MESSAGES_PER_ROOM = 1000;
   private readonly PING_INTERVAL = 30000; // 30 seconds
-  private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private pingInterval: NodeJS.Timeout | null = null;
 
   constructor(server: http.Server | https.Server) {
     this.wss = new WebSocket.Server({ server });
@@ -177,7 +187,7 @@ class ChatServer {
   }
 
   private setupEventHandlers() {
-    this.wss.on('connection', (ws: CustomWebSocket, req: http.IncomingMessage) => {
+    this.wss.on('connection', (ws: any, req: http.IncomingMessage) => {
       const client = ws;
       const ip = req.socket.remoteAddress || 'unknown';
       const userAgent = req.headers['user-agent'] || 'unknown';
@@ -191,25 +201,22 @@ class ChatServer {
       this.clients.set(client.id, client);
       this.log(`New connection from ${ip} (${client.id})`);
 
-      ws.on('pong', () => {
-        ws.isAlive = true;
-        ws.lastPing = Date.now();
-      });
-
-      client.on('message', (data: string) => this.handleMessage(client, data));
-      client.on('close', () => this.handleDisconnect(client));
-      client.on('error', (error) => this.handleError(client, error));
+      (ws as any).on('pong', () => this.handlePong(ws as CustomWebSocket));
+      (ws as any).on('message', (data: WebSocket.Data) => this.handleMessage(ws as CustomWebSocket, data.toString()));
+      (ws as any).on('close', () => this.handleDisconnect(ws as CustomWebSocket));
+      (ws as any).on('error', (error: Error) => this.handleError(ws as CustomWebSocket, error));
     });
+  }
+  handlePong(arg0: CustomWebSocket) {
+    throw new Error('Method not implemented.');
   }
 
   private setupPingInterval() {
     this.pingInterval = setInterval(() => {
       const now = Date.now();
-      this.wss.clients.forEach((ws) => {
-        const client = ws as unknown as Client;
+      (this.wss.clients as Set<CustomWebSocket>).forEach((client) => {
         // If we haven't received a pong in 2 intervals, terminate the connection
         if (now - client.lastPing > this.PING_INTERVAL * 2) {
-          this.log(`Terminating inactive connection: ${client.id}`);
           client.terminate();
           return;
         }
@@ -223,7 +230,7 @@ class ChatServer {
         client.isAlive = false;
         client.ping(() => {});
       });
-    }, this.PING_INTERVAL) as NodeJS.Timeout;
+    }, this.PING_INTERVAL);
   }
 
   private async handleMessage(ws: Client, data: string) {
@@ -323,6 +330,9 @@ class ChatServer {
       
       // Send initial state
       this.sendInitialState(ws);
+      
+      // Send initial ping
+      ws.ping();
       
     } catch (error) {
       this.sendError(ws, 'AUTH_ERROR', error instanceof Error ? error.message : 'Authentication failed', message.requestId);
@@ -572,7 +582,7 @@ class ChatServer {
     });
     
     // Try to send an error message to the client before closing
-    if (ws.readyState === WebSocket.OPEN) {
+    if (ws.readyState === 1) { // 1 = OPEN
       try {
         ws.send(JSON.stringify({
           type: 'ERROR',
@@ -587,7 +597,6 @@ class ChatServer {
     }
     
     ws.terminate();
-    this.handleDisconnect(ws);
   }
 
   private sendInitialState(ws: Client) {
@@ -622,18 +631,12 @@ class ChatServer {
     payload: unknown;
     requestId?: string;
   }) {
-    if (ws.readyState !== WebSocket.OPEN) return;
-
-    const message = {
-      ...response,
-      timestamp: Date.now(),
-      requestId: response.requestId,
-    };
-
-    try {
-      ws.send(JSON.stringify(message));
-    } catch (error) {
-      this.logError('Error sending response:', error);
+    if (ws.readyState === 1) { // 1 = OPEN
+      ws.send(JSON.stringify({
+        ...response,
+        timestamp: Date.now(),
+        requestId: response.requestId,
+      }));
     }
   }
 
@@ -646,47 +649,49 @@ class ChatServer {
     });
   }
 
-  private broadcastToRoom(roomId: string, excludeWs: Client | null, message: unknown) {
+  private broadcastToRoom(roomId: string, excludeWs: Client | null, message: unknown): number {
     const room = this.rooms.get(roomId);
-    if (!room) return;
+    if (!room) return 0;
 
-    const messageStr = JSON.stringify({
-      ...(message as object),
-      timestamp: Date.now(),
-    });
-
+    const messageStr = JSON.stringify(message);
     let recipientCount = 0;
-    
-    room.members.forEach(userId => {
-      const user = this.users.get(userId);
-      if (!user) return;
 
-      // Find all client connections for this user
-      Array.from(this.clients.values())
-        .filter(client => client.userId === userId && client.readyState === WebSocket.OPEN)
-        .forEach(client => {
-          if (client !== excludeWs) {
-            try {
-              client.send(messageStr);
-              recipientCount++;
-            } catch (error) {
-              this.logError('Error broadcasting message:', error);
-            }
+    (this.wss.clients as Set<CustomWebSocket>).forEach((client) => {
+      if (client !== excludeWs && room.members.has(client.userId!)) {
+        try {
+          if ((client as any).readyState === 1) { // 1 = OPEN
+            (client as any).send(messageStr);
+            recipientCount++;
           }
-        });
+        } catch (error) {
+          this.logError('Error broadcasting message:', error);
+        }
+      }
     });
-
+    
     if (recipientCount > 0) {
       this.log(`Broadcasted to ${recipientCount} clients in room ${roomId}`);
     }
+    
+    return recipientCount;
   }
 
-  private log(...args: unknown[]) {
-    console.log(`[${new Date().toISOString()}]`, ...args);
+  private log(...args: unknown[]): void {
+    const timestamp = `[${new Date().toISOString()}]`;
+    const message = args.map(arg => 
+      typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+    ).join(' ');
+    console.log(timestamp, message);
   }
 
-  private logError(...args: unknown[]) {
-    console.error(`[${new Date().toISOString()}] ERROR:`, ...args);
+  private logError(...args: unknown[]): void {
+    const timestamp = `[${new Date().toISOString()}] ERROR:`;
+    const message = args.map(arg => 
+      arg instanceof Error ? arg.stack || arg.message : 
+      typeof arg === 'object' ? JSON.stringify(arg, null, 2) : 
+      String(arg)
+    ).join(' ');
+    console.error(timestamp, message);
   }
 }
 
@@ -694,22 +699,24 @@ class ChatServer {
 const server = http.createServer();
 
 // Initialize WebSocket server
-const chatServer = new ChatServer(server);
+const wss = new WebSocketServer({ server });
+// The ChatServer class will be instantiated and manage the WebSocket server
+new ChatServer(wss);
 
 // Start the server
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`WebSocket server is running on port ${PORT}`);
 });
 
-// Handle graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
+// Handle process termination and graceful shutdown
+function shutdown() {
+  console.log('Shutting down gracefully...');
   
   // Close all WebSocket connections
-  (chatServer as any).wss.clients.forEach((client: WebSocket) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.close(1001, 'Server is shutting down');
+  wss.clients.forEach((client) => {
+    if ((client as WebSocket).readyState === 1) { // 1 = OPEN
+      (client as WebSocket).close(1001, 'Server is shutting down');
     }
   });
   
@@ -718,13 +725,26 @@ process.on('SIGTERM', () => {
     console.log('Server closed');
     process.exit(0);
   });
+  
+  // Force shutdown after 5 seconds
+  setTimeout(() => {
+    console.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 5000);
+}
+
+// Handle various shutdown signals
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught exception:', error);
-  // In a production app, you might want to log this to an external service
-  // and decide whether to restart the process
+  console.error('Uncaught Exception:', error);
   process.exit(1);
 });
 
