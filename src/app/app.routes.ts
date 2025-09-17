@@ -1,31 +1,50 @@
 import { Routes } from '@angular/router';
+import { MainLayoutComponent } from './layout/main-layout/main-layout.component';
 
 export const routes: Routes = [
   {
-    path: 'chat',
-    loadComponent: () => import('./features/chat/components/chat-room/chat-room.component')
-      .then(m => m.ChatRoomComponent),
-    title: 'Chat Room'
-  },
-  {
-    path: 'websocket-demo',
-    loadComponent: () => import('./features/websocket-demo/websocket-demo.component')
-      .then(m => m.WebsocketDemoComponent),
-    title: 'WebSocket Demo'
-  },
-  {
-    path: 'websocket-test',
-    loadComponent: () => import('./features/websocket-test/websocket-test.component')
-      .then(m => m.WebsocketTestComponent),
-    title: 'WebSocket Test'
-  },
-  { 
     path: '',
-    redirectTo: 'websocket-demo',
-    pathMatch: 'full' 
+    component: MainLayoutComponent,
+    children: [
+      {
+        path: '',
+        redirectTo: 'chat',
+        pathMatch: 'full'
+      },
+      {
+        path: 'chat',
+        loadComponent: () => import('./features/chat/components/chat/chat.component')
+          .then(m => m.ChatComponent),
+        title: 'Chat | ChatFlow'
+      },
+      {
+        path: 'profile',
+        loadComponent: () => import('./features/profile/components/profile-view/profile-view.component')
+          .then(m => m.ProfileViewComponent),
+        title: 'Profile | ChatFlow'
+      },
+      {
+        path: 'settings',
+        loadComponent: () => import('./features/settings/settings.component')
+          .then(m => m.SettingsComponent),
+        title: 'Settings | ChatFlow'
+      },
+      {
+        path: 'websocket-demo',
+        loadComponent: () => import('./features/websocket-demo/websocket-demo.component')
+          .then(m => m.WebsocketDemoComponent),
+        title: 'WebSocket Demo | ChatFlow'
+      },
+      {
+        path: 'websocket-test',
+        loadComponent: () => import('./features/websocket-test/websocket-test.component')
+          .then(m => m.WebsocketTestComponent),
+        title: 'WebSocket Test | ChatFlow'
+      }
+    ]
   },
   { 
     path: '**',
-    redirectTo: 'websocket-demo'
+    redirectTo: 'chat'
   }
 ];
