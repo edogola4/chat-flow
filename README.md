@@ -16,18 +16,110 @@ A modern, real-time chat application built with Angular 19, TypeScript, and WebS
 ## ✨ Features
 
 ### Core Features
-- **Real-time Messaging**: Instant message delivery using WebSockets
+- **Real-time Messaging**: Instant message delivery using WebSockets with automatic reconnection
 - **User Authentication**: JWT-based authentication system with token management
 - **User Profiles**: View and manage user profiles with avatars and status indicators
 - **Theme System**: Toggle between light and dark themes with system preference detection
 - **Responsive Design**: Fully responsive layout that works on all device sizes
+- **Message Queuing**: Automatic message queuing when offline with delivery on reconnection
+- **Heartbeat Monitoring**: Connection health monitoring with automatic reconnection
 
 ### Technical Highlights
 - **Modern Angular**: Built with Angular 19 using standalone components
 - **Reactive State Management**: Leveraging RxJS for efficient state management
 - **Type Safety**: Full TypeScript support with strict typing
 - **Material Design**: Clean and modern UI components from Angular Material
-- **WebSocket Integration**: Real-time communication with WebSocket server
+- **WebSocket Integration**: Robust WebSocket service with the following features:
+  - Automatic reconnection with exponential backoff
+  - Message queuing for offline support
+  - Request/response pattern support
+  - Connection status monitoring
+  - Heartbeat mechanism for connection health
+  - Type-safe message handling
+
+## 🌐 WebSocket Service
+
+The WebSocket service (`WebsocketService`) provides a robust interface for real-time communication between the client and server.
+
+### Key Features
+
+- **Connection Management**: Automatic reconnection with configurable retry logic
+- **Message Queuing**: Messages are queued when offline and sent when connection is restored
+- **Type Safety**: Strongly typed messages and responses
+- **Request/Response Pattern**: Support for request/response pattern with timeouts
+- **Connection Monitoring**: Real-time connection status updates
+
+### Usage Example
+
+```typescript
+import { WebsocketService } from './services/websocket.service';
+import { Component, OnInit, OnDestroy } from '@angular/core';
+import { takeUntil } from 'rxjs/operators';
+import { Subject } from 'rxjs';
+
+@Component({
+  selector: 'app-chat',
+  template: `
+    <div *ngIf="isConnected$ | async">
+      <!-- Chat interface -->
+    </div>
+  `
+})
+export class ChatComponent implements OnInit, OnDestroy {
+  private destroy$ = new Subject<void>();
+  isConnected$ = this.websocketService.isConnected$;
+  
+  constructor(private websocketService: WebsocketService) {}
+
+  ngOnInit() {
+    // Listen for messages
+    this.websocketService.onMessage('CHAT_MESSAGE')
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(message => {
+        console.log('New message:', message);
+      });
+
+    // Send a message
+    this.sendMessage('Hello, World!');
+  }
+
+  sendMessage(content: string) {
+    this.websocketService.sendMessage('SEND_MESSAGE', {
+      content,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  ngOnDestroy() {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+}
+```
+
+### Configuration
+
+Configure the WebSocket service in your Angular module:
+
+```typescript
+import { WebsocketService } from './services/websocket.service';
+
+@NgModule({
+  // ...
+  providers: [
+    WebsocketService,
+    { provide: 'WS_CONFIG', useValue: {
+      url: environment.wsUrl,
+      reconnectAttempts: 5,
+      reconnectDelay: 3000,
+      heartbeatInterval: 30000,
+      maxMessageSize: 1024 * 1024 // 1MB
+    }}
+  ]
+  // ...
+})
+export class AppModule { }
+```
 
 ## 🚀 Getting Started
 
