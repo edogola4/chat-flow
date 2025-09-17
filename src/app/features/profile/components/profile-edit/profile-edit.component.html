@@ -1,0 +1,129 @@
+<div class="profile-edit-container">
+  <mat-card class="profile-edit-card">
+    <mat-card-header>
+      <mat-card-title>Edit Profile</mat-card-title>
+      <mat-card-subtitle>Update your personal information</mat-card-subtitle>
+    </mat-card-header>
+
+    <form [formGroup]="profileForm" (ngSubmit)="onSubmit()">
+      <mat-card-content>
+        <!-- Avatar Upload -->
+        <div class="avatar-upload-section">
+          <div class="avatar-preview">
+            <img [src]="previewUrl || 'assets/images/default-avatar.png'" alt="Profile" class="avatar-image">
+            <div class="avatar-overlay" (click)="fileInput.click()">
+              <mat-icon>camera_alt</mat-icon>
+              <span>Change Photo</span>
+            </div>
+            <input #fileInput type="file" accept="image/*" style="display: none" (change)="onFileSelected($event)">
+          </div>
+          <button type="button" mat-button color="warn" (click)="removeAvatar()" *ngIf="previewUrl">
+            <mat-icon>delete</mat-icon> Remove
+          </button>
+        </div>
+
+        <!-- Basic Information -->
+        <div class="form-section">
+          <h3>Basic Information</h3>
+          <div class="form-row">
+            <mat-form-field appearance="outline" class="form-field">
+              <mat-label>Display Name</mat-label>
+              <input matInput formControlName="displayName" placeholder="Your display name">
+              <mat-hint>This will be displayed to other users</mat-hint>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" class="form-field">
+              <mat-label>Location</mat-label>
+              <input matInput formControlName="location" placeholder="Your location">
+              <mat-icon matSuffix>location_on</mat-icon>
+            </mat-form-field>
+          </div>
+
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Bio</mat-label>
+            <textarea matInput formControlName="bio" placeholder="Tell us about yourself" rows="4"></textarea>
+            <mat-hint align="end">{{ profileForm.get('bio')?.value?.length || 0 }}/500</mat-hint>
+          </mat-form-field>
+        </div>
+
+        <!-- Contact Information -->
+        <div class="form-section">
+          <h3>Contact Information</h3>
+          <div class="form-row">
+            <mat-form-field appearance="outline" class="form-field">
+              <mat-label>Phone</mat-label>
+              <input matInput formControlName="phone" placeholder="+1 (123) 456-7890">
+              <mat-icon matSuffix>phone</mat-icon>
+              <mat-error *ngIf="profileForm.get('phone')?.hasError('pattern')">
+                Please enter a valid phone number
+              </mat-error>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" class="form-field">
+              <mat-label>Website</mat-label>
+              <input matInput formControlName="website" placeholder="https://example.com">
+              <mat-icon matSuffix>public</mat-icon>
+              <mat-error *ngIf="profileForm.get('website')?.hasError('pattern')">
+                Please enter a valid URL
+              </mat-error>
+            </mat-form-field>
+          </div>
+        </div>
+
+        <!-- Social Media -->
+        <div class="form-section">
+          <h3>Social Media</h3>
+          <div [formGroup]="profileForm.controls.socialLinks">
+            <ng-container *ngFor="let platform of socialPlatforms">
+              <mat-form-field appearance="outline" class="form-field">
+                <mat-label>{{ platform.display }}</mat-label>
+                <span matPrefix class="social-prefix">{{ platform.prefix }}</span>
+                <input matInput [formControl]="getSocialControl(platform.value)" [placeholder]="'your-' + platform.value + '-username'">
+                <mat-icon matSuffix>{{ platform.icon }}</mat-icon>
+              </mat-form-field>
+            </ng-container>
+          </div>
+        </div>
+
+        <!-- Preferences -->
+        <div class="form-section">
+          <h3>Preferences</h3>
+          <div formGroupName="preferences">
+            <mat-form-field appearance="outline" class="form-field">
+              <mat-label>Theme</mat-label>
+              <mat-select formControlName="theme">
+                <mat-option value="light">Light</mat-option>
+                <mat-option value="dark">Dark</mat-option>
+                <mat-option value="system">System Default</mat-option>
+              </mat-select>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" class="form-field">
+              <mat-label>Language</mat-label>
+              <mat-select formControlName="language">
+                <mat-option value="en">English</mat-option>
+                <mat-option value="es">Español</mat-option>
+                <mat-option value="fr">Français</mat-option>
+                <mat-option value="de">Deutsch</mat-option>
+                <mat-option value="zh">中文</mat-option>
+                <mat-option value="ja">日本語</mat-option>
+              </mat-select>
+            </mat-form-field>
+
+            <mat-slide-toggle formControlName="notifications" color="primary">
+              Enable Notifications
+            </mat-slide-toggle>
+          </div>
+        </div>
+      </mat-card-content>
+
+      <mat-card-actions align="end" class="form-actions">
+        <button type="button" mat-button [routerLink]="['/profile']">Cancel</button>
+        <button type="submit" mat-raised-button color="primary" [disabled]="profileForm.invalid || isSubmitting">
+          <span *ngIf="!isSubmitting">Save Changes</span>
+          <mat-spinner *ngIf="isSubmitting" diameter="20"></mat-spinner>
+        </button>
+      </mat-card-actions>
+    </form>
+  </mat-card>
+</div>

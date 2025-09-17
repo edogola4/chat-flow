@@ -1,0 +1,142 @@
+.profile-container {
+  display: flex;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+.profile-card {
+  width: 100%;
+  max-width: 800px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+
+  .profile-avatar {
+    position: relative;
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    overflow: hidden;
+    margin-right: 1rem;
+    
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .status-chip {
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      transform: translate(25%, 25%);
+    }
+  }
+
+  .mat-mdc-card-header {
+    padding: 2rem 2rem 1rem;
+    position: relative;
+
+    .edit-button {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+    }
+
+    .verified-badge {
+      color: #1DA1F2;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+  }
+
+  .mat-mdc-card-content {
+    padding: 0 2rem 1rem;
+  }
+
+  .bio {
+    margin: 1rem 0;
+    font-size: 1rem;
+    line-height: 1.6;
+    color: rgba(0, 0, 0, 0.8);
+  }
+
+  .mat-mdc-list-item {
+    height: auto;
+    padding: 0.5rem 0;
+    
+    .mdc-list-item__content {
+      padding: 0.5rem 0;
+    }
+    
+    .secondary {
+      color: rgba(0, 0, 0, 0.6);
+      font-size: 0.875rem;
+      margin-top: 2px;
+      
+      a {
+        color: inherit;
+        text-decoration: none;
+        
+        &:hover {
+          text-decoration: underline;
+        }
+      }
+    }
+  }
+
+  .social-links {
+    margin-top: 1.5rem;
+    
+    h3 {
+      margin: 1rem 0 0.5rem;
+      font-size: 1rem;
+      font-weight: 500;
+      color: rgba(0, 0, 0, 0.7);
+    }
+    
+    .social-icons {
+      display: flex;
+      gap: 1rem;
+      padding: 0.5rem 0;
+      
+      a {
+        color: rgba(0, 0, 0, 0.6);
+        transition: color 0.2s;
+        
+        &:hover {
+          color: #3f51b5;
+        }
+      }
+    }
+  }
+
+  .mat-mdc-card-actions {
+    padding: 1rem 2rem 2rem;
+    margin: 0;
+  }
+}
+
+// Responsive adjustments
+@media (max-width: 600px) {
+  .profile-card {
+    .profile-avatar {
+      width: 80px;
+      height: 80px;
+    }
+    
+    .mat-mdc-card-header {
+      flex-direction: column;
+      align-items: flex-start;
+      padding: 1.5rem 1.5rem 0.5rem;
+      
+      .mat-mdc-card-header-text {
+        margin: 1rem 0 0;
+      }
+    }
+    
+    .mat-mdc-card-content {
+      padding: 0 1.5rem 1rem;
+    }
+  }
+}
