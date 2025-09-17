@@ -1,0 +1,7 @@
+{
+  "json.schemas": [],
+  "json.validate.enable": true,
+  "[package.json]": {
+    "json.schemaDownload.enable": false
+  }
+}

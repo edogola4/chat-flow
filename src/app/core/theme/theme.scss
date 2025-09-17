@@ -1,0 +1,300 @@
+// Color palette
+:root {
+  // Primary colors
+  --primary-50: #E0F2F1;
+  --primary-100: #B2DFDB;
+  --primary-200: #80CBC4;
+  --primary-300: #4DB6AC;
+  --primary-400: #26A69A;
+  --primary-500: #0A6E7D; // Main primary color
+  --primary-600: #00897B;
+  --primary-700: #00796B;
+  --primary-800: #00695C;
+  --primary-900: #004D40;
+
+  // Accent colors
+  --accent-50: #FFEBEE;
+  --accent-100: #FFCDD2;
+  --accent-200: #EF9A9A;
+  --accent-300: #E57373;
+  --accent-400: #EF5350;
+  --accent-500: #FF6B6B; // Main accent color
+  --accent-600: #E53935;
+  --accent-700: #D32F2F;
+  --accent-800: #C62828;
+  --accent-900: #B71C1C;
+
+  // Status colors
+  --success: #38A169;
+  --warning: #D69E2E;
+  --error: #E53E3E;
+  --info: #3182CE;
+  
+  // Status variants
+  --success-light: #C6F6D5;
+  --warning-light: #FEFCBF;
+  --error-light: #FED7D7;
+  --info-light: #BEE3F8;
+
+  // Typography
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-mono: 'Fira Code', 'Roboto Mono', monospace;
+}
+
+// Light theme
+:root, .light-theme {
+  // Background colors
+  --background-primary: #FFFFFF;
+  --background-secondary: #F8FAFC;
+  --background-tertiary: #F1F5F9;
+  
+  // Text colors
+  --text-primary: #1A202C;
+  --text-secondary: #4A5568;
+  --text-tertiary: #718096;
+  --text-on-primary: #FFFFFF;
+  
+  // UI elements
+  --border-color: #E2E8F0;
+  --divider-color: #EDF2F7;
+  
+  // Message bubbles
+  --message-sent-bg: var(--primary-500);
+  --message-sent-text: #FFFFFF;
+  --message-received-bg: #F5F7FA;
+  --message-received-text: #1A202C;
+  
+  // Inputs
+  --input-bg: #FFFFFF;
+  --input-border: #E2E8F0;
+  --input-text: #1A202C;
+  --input-placeholder: #A0AEC0;
+  
+  // Cards
+  --card-bg: #FFFFFF;
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+// Dark theme
+.dark-theme {
+  // Background colors
+  --background-primary: #1A202C;
+  --background-secondary: #2D3748;
+  --background-tertiary: #4A5568;
+  
+  // Text colors
+  --text-primary: #F7FAFC;
+  --text-secondary: #CBD5E0;
+  --text-tertiary: #A0AEC0;
+  --text-on-primary: #FFFFFF;
+  
+  // UI elements
+  --border-color: #4A5568;
+  --divider-color: #2D3748;
+  
+  // Message bubbles
+  --message-sent-bg: var(--primary-600);
+  --message-sent-text: #FFFFFF;
+  --message-received-bg: #2D3748;
+  --message-received-text: #F7FAFC;
+  
+  // Inputs
+  --input-bg: #2D3748;
+  --input-border: #4A5568;
+  --input-text: #F7FAFC;
+  --input-placeholder: #718096;
+  
+  // Cards
+  --card-bg: #2D3748;
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.25), 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+}
+
+// Status indicators
+.status-online { color: var(--success); }
+.status-offline { color: var(--text-tertiary); }
+.status-away { color: var(--warning); }
+.status-dnd { color: var(--error); }
+.status-typing { color: var(--info); }
+
+// Base styles
+body {
+  margin: 0;
+  font-family: var(--font-family);
+  background-color: var(--background-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+// Typography
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary);
+  margin-top: 0;
+  font-weight: 600;
+}
+
+p {
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+// Buttons
+button {
+  font-family: var(--font-family);
+  font-weight: 500;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  
+  &.primary {
+    background-color: var(--primary-500);
+    color: white;
+    
+    &:hover:not(:disabled) {
+      background-color: var(--primary-600);
+    }
+    
+    &:active:not(:disabled) {
+      background-color: var(--primary-700);
+    }
+  }
+  
+  &.accent {
+    background-color: var(--accent-500);
+    color: white;
+    
+    &:hover:not(:disabled) {
+      background-color: var(--accent-600);
+    }
+  }
+  
+  &.outline {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    
+    &:hover:not(:disabled) {
+      background-color: var(--background-secondary);
+    }
+  }
+}
+
+// Inputs
+input, textarea, select {
+  font-family: var(--font-family);
+  background-color: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--input-text);
+  font-size: 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  
+  &::placeholder {
+    color: var(--input-placeholder);
+  }
+  
+  &:focus {
+    outline: none;
+    border-color: var(--primary-500);
+    box-shadow: 0 0 0 3px rgba(10, 110, 125, 0.2);
+  }
+  
+  &:disabled {
+    background-color: var(--background-secondary);
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+}
+
+// Cards
+.card {
+  background-color: var(--card-bg);
+  border-radius: 8px;
+  box-shadow: var(--card-shadow);
+  padding: 16px;
+  margin-bottom: 16px;
+  transition: box-shadow 0.2s ease;
+  
+  &:hover {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+}
+
+// Message bubbles
+.message {
+  max-width: 70%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  margin: 4px 0;
+  line-height: 1.4;
+  word-wrap: break-word;
+  
+  &.sent {
+    background-color: var(--message-sent-bg);
+    color: var(--message-sent-text);
+    margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  
+  &.received {
+    background-color: var(--message-received-bg);
+    color: var(--message-received-text);
+    margin-right: auto;
+    border-bottom-left-radius: 4px;
+  }
+}
+
+// Status indicators
+.status-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  
+  &.online { background-color: var(--success); }
+  &.offline { background-color: var(--text-tertiary); }
+  &.away { background-color: var(--warning); }
+  &.dnd { background-color: var(--error); }
+  &.typing { 
+    background-color: var(--info);
+    animation: pulse 1.5s infinite;
+  }
+}
+
+@keyframes pulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+
+// Utility classes
+.text-primary { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-tertiary { color: var(--text-tertiary); }
+.text-success { color: var(--success); }
+.text-warning { color: var(--warning); }
+.text-error { color: var(--error); }
+.text-info { color: var(--info); }
+
+.bg-primary { background-color: var(--primary-500); }
+.bg-accent { background-color: var(--accent-500); }
+.bg-success { background-color: var(--success-light); }
+.bg-warning { background-color: var(--warning-light); }
+.bg-error { background-color: var(--error-light); }
+.bg-info { background-color: var(--info-light); }
+
+.rounded { border-radius: 6px; }
+.rounded-full { border-radius: 9999px; }
+
+.shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
+.shadow { box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06); }
+.shadow-md { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+.shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
