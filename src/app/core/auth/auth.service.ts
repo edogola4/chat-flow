@@ -17,7 +17,7 @@ export interface User {
 })
 export class AuthService {
   private currentUserSubject = new BehaviorSubject<User | null>(null);
-  public currentUser$ = this.currentUserSubject.asObservable();
+  public currentUser$: Observable<User | null> = this.currentUserSubject.asObservable();
   private readonly TOKEN_KEY = 'auth_token';
 
   constructor(private router: Router) {
