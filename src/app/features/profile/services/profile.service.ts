@@ -39,7 +39,26 @@ export class ProfileService {
 
   // Load the current user's profile
   loadProfile(): Observable<UserProfile | null> {
-    return this.http.get<UserProfile>(`${this.apiUrl}/me`).pipe(
+    // In a real app, this would be an HTTP request
+    // For now, return a mock profile
+    const mockProfile: UserProfile = {
+      id: 'user-123',
+      username: 'brandon',
+      email: 'brandon@example.com',
+      displayName: 'Bran Don',
+      bio: 'Software Developer | Angular Enthusiast',
+      status: 'online',
+      lastSeen: new Date(),
+      isEmailVerified: true,
+      createdAt: new Date('2023-01-01'),
+      socialLinks: {
+        twitter: 'https://twitter.com/brandon',
+        github: 'https://github.com/brandon',
+        linkedin: 'https://linkedin.com/in/brandon'
+      }
+    };
+
+    return of(mockProfile).pipe(
       tap(profile => this.currentProfileSubject.next(profile)),
       catchError(error => {
         console.error('Failed to load profile', error);
