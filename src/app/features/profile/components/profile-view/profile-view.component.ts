@@ -7,11 +7,26 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatListModule } from '@angular/material/list';
 import { MatChipsModule } from '@angular/material/chips';
 import { Router, RouterModule } from '@angular/router';
-import { Observable, switchMap, takeUntil, Subject, tap } from 'rxjs';
+import { Observable, switchMap, takeUntil, Subject, tap, of } from 'rxjs';
+import { ThemeService } from '../../../../core/theme/theme.service';
 
 // Local imports
 import { ProfileService, UserProfile } from '../../services/profile.service';
-import { AuthService, User } from '../../../core/services/auth.service';
+import { AuthService } from '../../../../core/services/auth.service';
+
+// Define User interface to match the expected structure
+interface User {
+  id: string;
+  username: string;
+  email: string;
+  avatar?: string;
+  status?: 'online' | 'away' | 'busy' | 'offline';
+  lastSeen?: Date;
+  token?: string;
+  bio?: string;
+  phone?: string;
+  isEmailVerified?: boolean;
+}
 
 @Component({
   selector: 'app-profile-view',
@@ -34,6 +49,10 @@ export class ProfileViewComponent implements OnInit, OnDestroy {
   // Services
   private readonly authService = inject(AuthService);
   private readonly profileService = inject(ProfileService);
+  private readonly themeService = inject(ThemeService);
+  
+  // Theme
+  isDarkMode = this.themeService.isDarkMode;
   private readonly router = inject(Router);
   private readonly destroy$ = new Subject<void>();
   
@@ -46,7 +65,7 @@ export class ProfileViewComponent implements OnInit, OnDestroy {
     this.profile$ = this.authService.currentUser$.pipe(
       takeUntil(this.destroy$),
       tap((user: User | null) => {
-        if (user) {
+        if (user?.id) {
           this.isCurrentUser = true;
           this.userId = user.id;
         } else {
@@ -54,7 +73,7 @@ export class ProfileViewComponent implements OnInit, OnDestroy {
           this.userId = null;
         }
       }),
-      switchMap(() => this.profileService.loadProfile())
+      switchMap((user: User | null) => user?.id ? this.profileService.loadProfile() : of(null))
     );
   }
 

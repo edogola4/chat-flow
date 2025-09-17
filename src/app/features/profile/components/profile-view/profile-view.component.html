@@ -13,7 +13,7 @@
           <mat-icon>verified</mat-icon>
         </span>
       </mat-card-title>
-      <mat-card-subtitle>@{{ profile.username }}</mat-card-subtitle>
+      <mat-card-subtitle>{{ '@' + profile.username }}</mat-card-subtitle>
       
       <button *ngIf="isCurrentUser" mat-icon-button class="edit-button" [routerLink]="['/profile/edit']">
         <mat-icon>edit</mat-icon>
