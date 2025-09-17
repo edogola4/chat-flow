@@ -7,8 +7,9 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { AuthService } from '../../../core/services/auth.service';
+import { AuthService, User } from '../../../core/auth/auth.service';
 import { filter, take } from 'rxjs/operators';
+import { Observable } from 'rxjs';
 
 @Component({
   selector: 'app-login',
@@ -44,9 +45,9 @@ export class LoginComponent implements OnInit {
 
   ngOnInit(): void {
     // Redirect if already logged in
-    this.authService.isAuthenticated$.pipe(
+    this.authService.currentUser$.pipe(
       take(1),
-      filter(isAuthenticated => isAuthenticated)
+      filter((user: User | null): user is User => user !== null)
     ).subscribe(() => {
       this.router.navigate(['/chat']);
     });
@@ -62,10 +63,7 @@ export class LoginComponent implements OnInit {
 
     const { username, password } = this.loginForm.value;
 
-    this.authService.login({
-      email: username, // Using username as email for login
-      password
-    }).subscribe({
+    this.authService.login(username, password).subscribe({
       next: () => {
         this.router.navigate(['/chat']);
       },
