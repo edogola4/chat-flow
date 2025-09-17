@@ -1,49 +1,138 @@
 # ChatFlow
 
-[![Vercel](https://vercelbadge.vercel.app/api/edogola4/chat-flow)](https://chat-flow.vercel.app)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Last Commit](https://img.shields.io/github/last-commit/edogola4/chat-flow)](https://github.com/edogola4/chat-flow/commits/main)
 [![GitHub Issues](https://img.shields.io/github/issues/edogola4/chat-flow)](https://github.com/edogola4/chat-flow/issues)
 [![GitHub PRs](https://img.shields.io/github/issues-pr/edogola4/chat-flow)](https://github.com/edogola4/chat-flow/pulls)
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/edogola4/chat-flow/graphs/commit-activity)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
+[![Angular](https://img.shields.io/badge/Angular-v19+-DD0031?style=flat&logo=angular&logoColor=white)](https://angular.io/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-v5.7+-007ACC?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-v18+-339933?style=flat&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Angular Material](https://img.shields.io/badge/Angular_Material-v19-FF4081?style=flat&logo=angular&logoColor=white)](https://material.angular.io/)
 
-A modern, real-time chat application built with Angular and WebSockets, featuring end-to-end encrypted messaging, multiple chat rooms, and a responsive design with dark/light theme support.
-
-![ChatFlow Logo](https://via.placeholder.com/150)  <!-- Replace with actual logo -->
+A modern, real-time chat application built with Angular 19, TypeScript, and WebSockets, featuring a responsive design with dark/light theme support and secure user authentication.
 
 ## ✨ Features
 
+### Core Features
 - **Real-time Messaging**: Instant message delivery using WebSockets
-- **Secure Authentication**: JWT-based authentication with token refresh
-- **User Profiles**: Customizable user profiles with avatars and status
-- **Multiple Chat Rooms**: Create and join different chat rooms
-- **Online Status**: Real-time user presence and status updates
-- **Message History**: View and search through chat history
-- **File Sharing**: Share files within conversations
-- **Themes**: Switch between light and dark mode
-- **Responsive Design**: Works on desktop and mobile devices
+- **User Authentication**: JWT-based authentication system with token management
+- **User Profiles**: View and manage user profiles with avatars and status indicators
+- **Theme System**: Toggle between light and dark themes with system preference detection
+- **Responsive Design**: Fully responsive layout that works on all device sizes
+
+### Technical Highlights
+- **Modern Angular**: Built with Angular 19 using standalone components
+- **Reactive State Management**: Leveraging RxJS for efficient state management
+- **Type Safety**: Full TypeScript support with strict typing
+- **Material Design**: Clean and modern UI components from Angular Material
+- **WebSocket Integration**: Real-time communication with WebSocket server
+
+## 🚀 Getting Started
+
+### Prerequisites
+- Node.js 18 or later
+- npm 9 or later (included with Node.js)
+- Angular CLI 19 or later
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/edogola4/chat-flow.git
+   cd chat-flow
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Start the development server**
+   ```bash
+   ng serve
+   ```
+
+4. **Open in browser**
+   ```
+   http://localhost:4200/
+   ```
+
+## 🛠 Project Structure
+
+```
+src/
+├── app/
+│   ├── core/               # Core functionality (auth, interceptors, services)
+│   ├── features/           # Feature modules
+│   │   ├── profile/        # User profile management
+│   │   └── settings/       # Application settings
+│   ├── shared/             # Shared components, directives, and pipes
+│   ├── app.component.ts    # Root component
+│   └── app.routes.ts       # Application routes
+├── assets/                # Static assets (images, fonts, etc.)
+└── styles/                # Global styles and theme variables
+```
 
 ## 🔐 Authentication System
 
 ChatFlow implements a secure authentication system with the following features:
 
-### Core Features
+### Core Authentication
 - **JWT Authentication**: Secure token-based authentication
-- **Token Refresh**: Automatic token refresh before expiration
+- **Token Management**: Automatic token refresh and storage
 - **Protected Routes**: Route guards to secure application routes
-- **User Sessions**: Persistent login sessions with token storage
-- **Role-Based Access**: Different permission levels for users and admins
+- **User Sessions**: Persistent login sessions with local storage
 
 ### User Management
-- **Registration**: Create new accounts with email verification
 - **Login/Logout**: Secure authentication flow
-- **Profile Management**: Update user information and preferences
-- **Password Reset**: Self-service password reset functionality
+- **Profile Management**: View and update user information
+- **Status Updates**: Set and update user status (online/away/busy/offline)
 
-## 🌟 WebSocket Integration
+## 🌐 WebSocket Integration
 
-### Authentication Flow
+ChatFlow uses WebSockets for real-time communication with the following features:
+
+### Key Features
+- **Real-time Updates**: Instant message delivery and status updates
+- **Connection Management**: Automatic reconnection and error handling
+- **Message Queue**: Offline message queuing with delivery status
+- **Event-based Architecture**: Clean separation of concerns with typed events
+
+### WebSocket Events
+- `CHAT_MESSAGE`: Send/receive chat messages
+- `JOIN_ROOM`: Join a chat room
+- `LEAVE_ROOM`: Leave a chat room
+- `NEW_MESSAGE`: Broadcast new messages to room participants
+
+## 🎨 Theming System
+
+ChatFlow includes a flexible theming system with the following features:
+- Light and dark theme support
+- System preference detection
+- Custom theme creation
+- Dynamic theme switching at runtime
+
+## 🤝 Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a new branch for your feature or bugfix
+3. Commit your changes with clear commit messages
+4. Push to your fork and submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [Angular](https://angular.io/) - The web framework used
+- [Angular Material](https://material.angular.io/) - UI component library
+- [RxJS](https://rxjs.dev/) - Reactive programming library
+- [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) - Real-time communication
 1. User logs in and receives a JWT token
 2. WebSocket connection is established with the token
 3. Server validates the token and authenticates the WebSocket connection
@@ -65,12 +154,30 @@ ChatFlow implements a secure authentication system with the following features:
   - Validates JWT tokens for authenticated connections
   - Implements ping/pong for connection health checking
 
+## 🎨 Theme Support
+
+ChatFlow includes a built-in theme system with the following features:
+
+### Theme Features
+- **Light/Dark Mode**: Toggle between light and dark themes
+- **System Preference**: Automatically detects and applies the system theme
+- **Persistent**: Theme preference is saved in local storage
+- **Smooth Transitions**: Animated theme transitions for a better user experience
+- **Themed Components**: All UI components adapt to the selected theme
+
+### How to Use
+1. Click the theme toggle button in the header or navigate to Settings
+2. Toggle the "Dark Mode" switch to change themes
+3. The theme will be saved and persist across page refreshes
+4. The app will automatically detect and match your system theme preference
+
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Node.js (v18 or later)
 - npm (v9 or later)
 - Angular CLI (v19 or later)
+- Angular Material (v19 or later)
 
 ### Setup
 
@@ -214,13 +321,56 @@ enum WebSocketMessageType {
 }
 ```
 
+## 🛠 Development
+
+### Project Structure
+
+```
+chat-flow/
+├── src/
+│   ├── app/
+│   │   ├── core/
+│   │   │   ├── services/
+│   │   │   │   ├── theme.service.ts      # Theme management
+│   │   │   │   └── websocket.service.ts  # WebSocket service
+│   │   │   └── theme/                    # Theme components and styles
+│   │   └── features/
+│   │       ├── settings/                 # User settings including theme
+│   │       └── chat/                     # Chat components
+│   └── styles/
+│       └── _themes.scss                  # Theme variables and styles
+└── websocket-server/                     # WebSocket server
+```
+
+### Running Locally
+
+1. Start the development server:
+   ```bash
+   ng serve
+   ```
+
+2. Start the WebSocket server:
+   ```bash
+   cd websocket-server
+   npm start
+   ```
+
+3. Open your browser and navigate to `http://localhost:4200`
+
 ## 🤝 Contributing
+
+We welcome contributions! Please follow these steps:
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
+
+### Code Style
+- Follow the [Angular Style Guide](https://angular.io/guide/styleguide)
+- Use meaningful commit messages following [Conventional Commits](https://www.conventionalcommits.org/)
+- Ensure all tests pass before submitting a PR
 
 ## 📄 License
 
@@ -232,9 +382,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Real-time functionality powered by [Socket.IO](https://socket.io/)
 - Icons from [Material Icons](https://material.io/resources/icons/)
 - Styled with [Angular Material](https://material.angular.io/)
+- Theme system inspired by [Angular Material Theming](https://material.angular.io/guide/theming)
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
 <div align="center">
-  Made with ❤️ by Your Name
+  Made with ❤️ by the ChatFlow Team
 </div>
