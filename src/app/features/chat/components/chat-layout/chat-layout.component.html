@@ -1,0 +1,39 @@
+<div class="chat-container">
+  <!-- Mobile header with menu button -->
+  <mat-toolbar color="primary" class="mobile-header" *ngIf="isMobile">
+    <button mat-icon-button (click)="toggleSidebar()">
+      <mat-icon>menu</mat-icon>
+    </button>
+    <span>ChatFlow</span>
+  </mat-toolbar>
+
+  <mat-sidenav-container class="sidenav-container" [class.mobile-sidenav-container]="isMobile">
+    <!-- Sidebar -->
+    <mat-sidenav #sidenav 
+                [mode]="isMobile ? 'over' : 'side'" 
+                [opened]="!isMobile || showSidebar"
+                [fixedInViewport]="isMobile"
+                [fixedTopGap]="isMobile ? 56 : 0">
+      
+      <div class="sidebar-header">
+        <h2>Rooms</h2>
+        <button mat-icon-button *ngIf="!isMobile" (click)="toggleSidebar()">
+          <mat-icon>chevron_left</mat-icon>
+        </button>
+      </div>
+
+      <app-room-list 
+        [rooms]="(rooms$ | async) || []" 
+        [currentRoom]="currentRoom$ | async"
+        (roomSelected)="onRoomSelect($event)">
+      </app-room-list>
+    </mat-sidenav>
+
+    <!-- Main content -->
+    <mat-sidenav-content>
+      <div class="chat-content">
+        <router-outlet></router-outlet>
+      </div>
+    </mat-sidenav-content>
+  </mat-sidenav-container>
+</div>

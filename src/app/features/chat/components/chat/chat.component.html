@@ -1,0 +1,95 @@
+<div class="chat-container">
+  <!-- Chat header -->
+  <mat-toolbar class="chat-header" color="primary">
+    <div class="user-info">
+      <div class="avatar">
+        <span>BD</span>
+      </div>
+      <div class="user-details" *ngIf="(currentRoom$ | async) as room">
+        <h3>{{ room.name }}</h3>
+        <span class="status">
+          <span class="dot"></span>
+          {{ room.members.length }} members
+        </span>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="chat-actions">
+      <button mat-icon-button matTooltip="Start a call">
+        <mat-icon>phone</mat-icon>
+      </button>
+      <button mat-icon-button matTooltip="Start a video call">
+        <mat-icon>videocam</mat-icon>
+      </button>
+      <button mat-icon-button [matMenuTriggerFor]="menu">
+        <mat-icon>more_vert</mat-icon>
+      </button>
+      <mat-menu #menu="matMenu">
+        <button mat-menu-item>
+          <mat-icon>person_add</mat-icon>
+          <span>Add People</span>
+        </button>
+        <button mat-menu-item>
+          <mat-icon>notifications</mat-icon>
+          <span>Mute Notifications</span>
+        </button>
+        <mat-divider></mat-divider>
+        <button mat-menu-item>
+          <mat-icon>delete</mat-icon>
+          <span>Clear Chat</span>
+        </button>
+      </mat-menu>
+    </div>
+  </mat-toolbar>
+
+  <!-- Messages container -->
+  <div class="messages-container">
+    <ng-container *ngIf="messages$ | async as messages">
+      <div *ngFor="let message of messages" class="message" 
+           [class.sent]="message.senderId === chatService.getCurrentUserId()"
+           [class.received]="message.senderId !== chatService.getCurrentUserId()">
+        
+        <div class="message-avatar" *ngIf="message.senderId !== chatService.getCurrentUserId()">
+          <span>{{ message.senderName | slice:0:2 | uppercase }}</span>
+        </div>
+        
+        <div class="message-content">
+          <div class="message-header">
+            <span class="sender-name" *ngIf="message.senderId !== chatService.getCurrentUserId()">
+              {{ message.senderName }}
+            </span>
+            <span class="message-time">
+              {{ message.timestamp | date:'shortTime' }}
+            </span>
+          </div>
+          <div class="message-text">{{ message.content }}</div>
+          
+          <div class="message-status" *ngIf="message.senderId === chatService.getCurrentUserId()">
+            <mat-icon class="small-icon" *ngIf="message.status === 'sent'">check</mat-icon>
+            <mat-icon class="small-icon" *ngIf="message.status === 'delivered'">done_all</mat-icon>
+            <mat-icon class="small-icon delivered" *ngIf="message.status === 'read'">done_all</mat-icon>
+          </div>
+        </div>
+      </div>
+    </ng-container>
+  </div>
+
+  <!-- Message input -->
+  <div class="message-input">
+    <button mat-icon-button>
+      <mat-icon>add</mat-icon>
+    </button>
+    <mat-form-field appearance="outline" class="message-field">
+      <input 
+        matInput 
+        [(ngModel)]="newMessage" 
+        (keyup.enter)="sendMessage()"
+        (input)="onTyping()"
+        placeholder="Type a message"
+        autocomplete="off">
+    </mat-form-field>
+    <button mat-icon-button [disabled]="!newMessage.trim()" (click)="sendMessage()">
+      <mat-icon>send</mat-icon>
+    </button>
+  </div>
+</div>

@@ -1,0 +1,39 @@
+<div class="room-list-container">
+  <div class="room-list-header">
+    <h2>Chat Rooms</h2>
+    <button mat-icon-button 
+            (click)="openCreateRoomDialog()" 
+            matTooltip="Create New Room"
+            color="primary">
+      <mat-icon>add</mat-icon>
+    </button>
+  </div>
+
+  <mat-nav-list>
+    <ng-container *ngIf="rooms && rooms.length > 0; else noRooms">
+      <a mat-list-item 
+         *ngFor="let room of rooms" 
+         [class.active]="isRoomActive(room)"
+         (click)="onRoomClick(room.id)"
+         [matTooltip]="room.description || room.name">
+        <mat-icon matListItemIcon>
+          {{ room.type === 'direct' ? 'person' : 'forum' }}
+        </mat-icon>
+        <div matListItemTitle>{{ room.name }}</div>
+        <div matListItemLine *ngIf="room.lastMessage" class="last-message">
+          <span *ngIf="room.lastMessage.senderName">{{ room.lastMessage.senderName }}: </span>
+          {{ room.lastMessage.content | slice:0:30 }}{{ room.lastMessage.content.length > 30 ? '...' : '' }}
+        </div>
+        <div matListItemMeta *ngIf="room.unreadCount > 0" class="unread-badge">
+          <span class="badge">{{ room.unreadCount }}</span>
+        </div>
+      </a>
+    </ng-container>
+
+    <ng-template #noRooms>
+      <div class="no-rooms">
+        <p>No rooms available. Create one to get started!</p>
+      </div>
+    </ng-template>
+  </mat-nav-list>
+</div>

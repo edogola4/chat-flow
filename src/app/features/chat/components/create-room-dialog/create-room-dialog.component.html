@@ -1,0 +1,46 @@
+<h2 mat-dialog-title>Create New Chat Room</h2>
+
+<mat-dialog-content>
+  <form [formGroup]="roomForm" (ngSubmit)="onSubmit()">
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Room Name</mat-label>
+      <input matInput formControlName="name" placeholder="Enter room name" required>
+      <mat-error *ngIf="roomForm.get('name')?.hasError('required')">
+        Room name is required
+      </mat-error>
+      <mat-error *ngIf="roomForm.get('name')?.hasError('minlength')">
+        Room name must be at least 3 characters
+      </mat-error>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Description (Optional)</mat-label>
+      <textarea 
+        matInput 
+        formControlName="description" 
+        placeholder="Enter a brief description"
+        rows="3">
+      </textarea>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Room Type</mat-label>
+      <mat-select formControlName="type">
+        <mat-option *ngFor="let type of roomTypes" [value]="type.value">
+          {{ type.viewValue }}
+        </mat-option>
+      </mat-select>
+    </mat-form-field>
+  </form>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-button (click)="onCancel()">Cancel</button>
+  <button 
+    mat-raised-button 
+    color="primary" 
+    [disabled]="!roomForm.valid"
+    (click)="onSubmit()">
+    Create Room
+  </button>
+</mat-dialog-actions>

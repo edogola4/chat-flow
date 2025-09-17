@@ -1,0 +1,32 @@
+.full-width {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+mat-dialog-actions {
+  padding: 16px 24px;
+  margin: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+mat-dialog-content {
+  padding: 16px 24px;
+  margin: 0;
+}
+
+h2 {
+  margin: 0;
+  padding: 16px 24px;
+  font-size: 1.25rem;
+  font-weight: 500;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+button[mat-raised-button] {
+  margin-left: 8px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 60px;
+}

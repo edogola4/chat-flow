@@ -4,16 +4,18 @@ import {
   Observable, 
   Subject, 
   of, 
-  throwError
+  throwError 
 } from 'rxjs';
 import { 
   map, 
   distinctUntilChanged, 
-  shareReplay,
-  filter,
-  takeUntil
+  shareReplay, 
+  takeUntil,
+  catchError,
+  tap
 } from 'rxjs/operators';
-import { WebsocketService, WebSocketMessage } from '../../../core/services/websocket.service';
+import { WebsocketService, WebSocketMessage } from './websocket.service';
+import { CreateRoomDto } from '../models/room.model';
 
 export interface User {
   id: string;
@@ -21,6 +23,12 @@ export interface User {
   status: 'online' | 'away' | 'busy' | 'offline';
   avatar?: string;
   lastSeen?: Date;
+}
+
+export interface Reaction {
+  emoji: string;
+  userId: string;
+  username: string;
 }
 
 export interface ChatMessage {
@@ -33,10 +41,7 @@ export interface ChatMessage {
   timestamp: Date;
   edited?: boolean;
   editedAt?: Date;
-  reactions: { emoji: string; userId: string; username: string }[];
-  emoji?: string;
-  userId: string;
-  username: string;
+  reactions: Reaction[];
   replyTo?: string;
 }
 
@@ -49,6 +54,7 @@ export interface ChatRoom {
   createdAt: Date;
   lastMessage?: ChatMessage;
   unreadCount: number;
+  isActive?: boolean;
 }
 
 interface ChatState {
@@ -63,7 +69,7 @@ interface ChatState {
   providedIn: 'root'
 })
 export class ChatService implements OnDestroy {
-  private websocketService = inject(WebsocketService);
+  private websocketService: WebsocketService = inject(WebsocketService);
   private destroy$ = new Subject<void>();
   
   private stateSubject = new BehaviorSubject<ChatState>({
@@ -76,7 +82,7 @@ export class ChatService implements OnDestroy {
 
   // Public observables
   public state$ = this.stateSubject.asObservable();
-  public connectionStatus$ = this.websocketService.connectionStatus$;
+  public connectionStatus$: Observable<boolean> = this.websocketService.connectionStatus$;
   
   public activeRoom$ = this.state$.pipe(
     map(state => state.rooms.find(room => room.id === state.activeRoomId) || null),
@@ -112,10 +118,43 @@ export class ChatService implements OnDestroy {
   );
 
   private currentUserId = 'user-' + Math.random().toString(36).substr(2, 9);
-  private currentUsername = 'User' + Math.random().toString(36).substr(2, 5);
+  private currentUsername = 'Bran Don';
+  private rooms: ChatRoom[] = [];
 
   constructor() {
     this.initializeWebSocketHandlers();
+    this.initializeDefaultRooms();
+  }
+
+  private initializeDefaultRooms(): void {
+    const defaultRooms: ChatRoom[] = [
+      {
+        id: 'general',
+        name: 'General',
+        description: 'General discussion',
+        type: 'public',
+        members: [this.currentUserId],
+        createdAt: new Date(),
+        unreadCount: 0,
+        isActive: true
+      },
+      {
+        id: 'random',
+        name: 'Random',
+        description: 'Off-topic discussions',
+        type: 'public',
+        members: [this.currentUserId],
+        createdAt: new Date(),
+        unreadCount: 0,
+        isActive: false
+      }
+    ];
+    
+    this.rooms = defaultRooms;
+    this.stateSubject.next({
+      ...this.stateSubject.value,
+      rooms: this.rooms
+    });
   }
 
   ngOnDestroy(): void {
@@ -140,28 +179,50 @@ export class ChatService implements OnDestroy {
     return this.currentUsername;
   }
 
-  // Join a chat room
-  joinRoom(roomId: string, username?: string): Observable<ChatMessage> {
-    if (username) {
-      this.currentUsername = username;
-    }
+  // Get all available rooms
+  getRooms(): Observable<ChatRoom[]> {
+    return this.state$.pipe(
+      map(state => state.rooms),
+      distinctUntilChanged()
+    );
+  }
+
+  // Create a new chat room
+  createRoom(roomData: CreateRoomDto): Observable<ChatRoom> {
+    const newRoom: ChatRoom = {
+      ...roomData,
+      id: `room-${Date.now()}`,
+      members: [...(roomData.members || []), this.currentUserId],
+      createdAt: new Date(),
+      unreadCount: 0,
+      isActive: false
+    };
+
+    this.rooms = [...this.rooms, newRoom];
     
-    // Notify server that we're joining a room
-    const joinMessage = {
-      type: 'JOIN_ROOM',
-      data: {
-        roomId, 
-        username: this.currentUsername 
-      }
-    } as const;
-    
-    this.websocketService.sendMessage(joinMessage);
-    
-    // Update local state
     this.stateSubject.next({
       ...this.stateSubject.value,
-      activeRoomId: roomId
+      rooms: this.rooms
     });
+
+    return of(newRoom);
+  }
+
+  // Join a chat room
+  joinRoom(roomId: string, username: string = this.currentUsername): Observable<ChatMessage> {
+    if (!roomId) {
+      return throwError(() => new Error('Room ID is required'));
+    }
+
+    // Send join message via WebSocket
+    this.websocketService.sendMessage('JOIN_ROOM', {
+      roomId,
+      username: username || this.currentUsername,
+      userId: this.currentUserId
+    });
+    
+    // Update active room
+    this.setActiveRoom(roomId);
     
     // Return a dummy message since we need to return Observable<ChatMessage>
     const dummyMessage: ChatMessage = {
@@ -172,9 +233,7 @@ export class ChatService implements OnDestroy {
       senderName: 'System',
       roomId,
       timestamp: new Date(),
-      reactions: [],
-      userId: 'system',
-      username: 'System'
+      reactions: []
     };
     
     return of(dummyMessage);
@@ -183,40 +242,27 @@ export class ChatService implements OnDestroy {
   // Send a message to the current room
   sendMessage(content: string, roomId: string): Observable<ChatMessage> {
     if (!content || !roomId) {
-      return throwError(() => new Error('Message content and room ID are required'));
+      return throwError(() => new Error('Content and roomId are required'));
     }
 
-    const message = {
-      type: 'SEND_MESSAGE',
-      data: {
-        content,
-        roomId,
-        senderId: this.currentUserId,
-        senderName: this.currentUsername,
-        timestamp: new Date()
-      }
-    } as const;
-
-    // Create a new message object
-    const newMessage: ChatMessage = {
-      id: `msg-${Date.now()}`,
+    const message: ChatMessage = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       content,
       type: 'text',
       senderId: this.currentUserId,
       senderName: this.currentUsername,
       roomId,
       timestamp: new Date(),
-      reactions: [],
-      userId: this.currentUserId,
-      username: this.currentUsername
+      reactions: []
     };
 
-    // Add the message to the local state immediately for optimistic UI update
-    this.addMessageToRoom(newMessage);
+    // Add message to local state
+    this.addMessageToRoom(message);
+    
+    // Send message via WebSocket
+    this.websocketService.sendMessage('SEND_MESSAGE', message);
 
-    // Send the message via WebSocket and return an observable that completes with the new message
-    this.websocketService.sendMessage(message);
-    return of(newMessage);
+    return of(message);
   }
 
   // Set the active room
@@ -294,13 +340,21 @@ export class ChatService implements OnDestroy {
     this.websocketService.messages$.pipe(
       takeUntil(this.destroy$)
     ).subscribe({
-      next: (message) => this.handleIncomingMessage(message as any),
-      error: (error: any) => console.error('WebSocket error:', error)
+      next: (message: WebSocketMessage) => this.handleIncomingMessage(message),
+      error: (error: Error) => console.error('WebSocket error:', error)
     });
   }
 
   // Update typing status for a user in a room
   updateTypingStatus(userId: string, roomId: string, isTyping: boolean): void {
+    if (!userId || !roomId) return;
+    
+    this.websocketService.sendMessage('TYPING_STATUS', {
+      userId,
+      roomId,
+      isTyping
+    });
+
     const state = this.stateSubject.getValue();
     
     // Update typing users state
@@ -312,14 +366,6 @@ export class ChatService implements OnDestroy {
       }
     };
 
-    // Notify other users about typing status
-    this.websocketService.sendMessage('TYPING_STATUS', {
-      userId,
-      roomId,
-      isTyping
-    });
-
-    // Update the state
     this.stateSubject.next({
       ...state,
       typingUsers
@@ -327,43 +373,49 @@ export class ChatService implements OnDestroy {
   }
 
   // Handle incoming WebSocket messages
-  private handleIncomingMessage(message: { type: string; data: any }): void {
+  private handleIncomingMessage(message: WebSocketMessage): void {
     if (!message || !message.type) return;
 
     switch (message.type) {
       case 'NEW_MESSAGE':
+        if (!message.payload) return;
+        
         const chatMessage: ChatMessage = {
-          id: message.data.id || `msg-${Date.now()}`,
-          content: message.data.content,
-          type: message.data.type || 'text',
-          senderId: message.data.senderId,
-          senderName: message.data.senderName,
-          roomId: message.data.roomId,
-          timestamp: new Date(message.data.timestamp || Date.now()),
-          reactions: message.data.reactions || [],
-          userId: message.data.userId || message.data.senderId,
-          username: message.data.username || message.data.senderName
+          id: message.payload.id || `msg-${Date.now()}`,
+          content: message.payload.content,
+          type: (message.payload.type || 'text') as 'text' | 'image' | 'file' | 'system',
+          senderId: message.payload.senderId,
+          senderName: message.payload.senderName,
+          roomId: message.payload.roomId,
+          timestamp: new Date(message.payload.timestamp || Date()),
+          reactions: message.payload.reactions || []
         };
         this.addMessageToRoom(chatMessage);
         break;
         
       case 'USER_JOINED':
         // Handle user joined event
-        this.handleUserJoined(message.data);
+        if (message.payload) {
+          this.handleUserJoined(message.payload);
+        }
         break;
         
       case 'USER_LEFT':
         // Handle user left event
-        this.handleUserLeft(message.data);
+        if (message.payload) {
+          this.handleUserLeft(message.payload);
+        }
         break;
         
       case 'TYPING_STATUS':
         // Handle typing status update
-        this.handleTypingStatusUpdate(message.data);
+        if (message.payload) {
+          this.handleTypingStatusUpdate(message.payload);
+        }
         break;
         
       case 'ERROR':
-        console.error('WebSocket error:', message.data);
+        console.error('WebSocket error:', message.payload);
         break;
     }
   }

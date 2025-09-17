@@ -13,8 +13,8 @@ export const routes: Routes = [
       },
       {
         path: 'chat',
-        loadComponent: () => import('./features/chat/components/chat/chat.component')
-          .then(m => m.ChatComponent),
+        loadChildren: () => import('./features/chat/chat.module')
+          .then(m => m.ChatModule),
         title: 'Chat | ChatFlow'
       },
       {
