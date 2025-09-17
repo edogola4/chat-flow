@@ -13,7 +13,7 @@ import {
   filter,
   takeUntil
 } from 'rxjs/operators';
-import { WebsocketService } from './websocket.service';
+import { WebsocketService, WebSocketMessage } from '../../../core/services/websocket.service';
 
 export interface User {
   id: string;
@@ -121,7 +121,7 @@ export class ChatService implements OnDestroy {
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
-    this.websocketService.disconnect();
+    // No need to manually disconnect as the WebSocket service manages its own connection
   }
 
   // Get messages for a specific room
@@ -141,16 +141,21 @@ export class ChatService implements OnDestroy {
   }
 
   // Join a chat room
-  joinRoom(roomId: string, username?: string): Observable<boolean> {
+  joinRoom(roomId: string, username?: string): Observable<ChatMessage> {
     if (username) {
       this.currentUsername = username;
     }
     
     // Notify server that we're joining a room
-    this.websocketService.sendMessage('JOIN_ROOM', { 
-      roomId, 
-      username: this.currentUsername 
-    });
+    const joinMessage = {
+      type: 'JOIN_ROOM',
+      data: {
+        roomId, 
+        username: this.currentUsername 
+      }
+    } as const;
+    
+    this.websocketService.sendMessage(joinMessage);
     
     // Update local state
     this.stateSubject.next({
@@ -158,7 +163,21 @@ export class ChatService implements OnDestroy {
       activeRoomId: roomId
     });
     
-    return of(true);
+    // Return a dummy message since we need to return Observable<ChatMessage>
+    const dummyMessage: ChatMessage = {
+      id: `sys-${Date.now()}`,
+      content: `Joined room ${roomId}`,
+      type: 'system',
+      senderId: 'system',
+      senderName: 'System',
+      roomId,
+      timestamp: new Date(),
+      reactions: [],
+      userId: 'system',
+      username: 'System'
+    };
+    
+    return of(dummyMessage);
   }
 
   // Send a message to the current room
@@ -167,33 +186,37 @@ export class ChatService implements OnDestroy {
       return throwError(() => new Error('Message content and room ID are required'));
     }
 
-    const message: ChatMessage = {
+    const message = {
+      type: 'SEND_MESSAGE',
+      data: {
+        content,
+        roomId,
+        senderId: this.currentUserId,
+        senderName: this.currentUsername,
+        timestamp: new Date()
+      }
+    } as const;
+
+    // Create a new message object
+    const newMessage: ChatMessage = {
       id: `msg-${Date.now()}`,
       content,
       type: 'text',
-      senderId: this.getCurrentUserId(),
-      senderName: this.getCurrentUsername(),
+      senderId: this.currentUserId,
+      senderName: this.currentUsername,
       roomId,
       timestamp: new Date(),
       reactions: [],
-      userId: this.getCurrentUserId(),
-      username: this.getCurrentUsername()
+      userId: this.currentUserId,
+      username: this.currentUsername
     };
 
     // Add the message to the local state immediately for optimistic UI update
-    this.addMessageToRoom(message);
+    this.addMessageToRoom(newMessage);
 
-    // Send the message via WebSocket
-    return new Observable<ChatMessage>(subscriber => {
-      try {
-        this.websocketService.sendMessage('SEND_MESSAGE', message);
-        subscriber.next(message);
-        subscriber.complete();
-      } catch (error) {
-        console.error('Error sending message:', error);
-        subscriber.error(error);
-      }
-    });
+    // Send the message via WebSocket and return an observable that completes with the new message
+    this.websocketService.sendMessage(message);
+    return of(newMessage);
   }
 
   // Set the active room
@@ -271,8 +294,8 @@ export class ChatService implements OnDestroy {
     this.websocketService.messages$.pipe(
       takeUntil(this.destroy$)
     ).subscribe({
-      next: (message) => this.handleIncomingMessage(message),
-      error: (error) => console.error('WebSocket error:', error)
+      next: (message) => this.handleIncomingMessage(message as any),
+      error: (error: any) => console.error('WebSocket error:', error)
     });
   }
 
@@ -304,31 +327,43 @@ export class ChatService implements OnDestroy {
   }
 
   // Handle incoming WebSocket messages
-  private handleIncomingMessage(message: any): void {
+  private handleIncomingMessage(message: { type: string; data: any }): void {
     if (!message || !message.type) return;
 
     switch (message.type) {
       case 'NEW_MESSAGE':
-        this.addMessageToRoom(message.payload as ChatMessage);
+        const chatMessage: ChatMessage = {
+          id: message.data.id || `msg-${Date.now()}`,
+          content: message.data.content,
+          type: message.data.type || 'text',
+          senderId: message.data.senderId,
+          senderName: message.data.senderName,
+          roomId: message.data.roomId,
+          timestamp: new Date(message.data.timestamp || Date.now()),
+          reactions: message.data.reactions || [],
+          userId: message.data.userId || message.data.senderId,
+          username: message.data.username || message.data.senderName
+        };
+        this.addMessageToRoom(chatMessage);
         break;
         
       case 'USER_JOINED':
         // Handle user joined event
-        this.handleUserJoined(message.payload);
+        this.handleUserJoined(message.data);
         break;
         
       case 'USER_LEFT':
         // Handle user left event
-        this.handleUserLeft(message.payload);
+        this.handleUserLeft(message.data);
         break;
         
       case 'TYPING_STATUS':
         // Handle typing status update
-        this.handleTypingStatusUpdate(message.payload);
+        this.handleTypingStatusUpdate(message.data);
         break;
         
       case 'ERROR':
-        console.error('WebSocket error:', message.payload);
+        console.error('WebSocket error:', message.data);
         break;
     }
   }

@@ -18,6 +18,7 @@ import { DomSanitizer } from '@angular/platform-browser';
 
 import { routes } from './app.routes';
 import { ThemeService } from './core/theme/theme.service';
+import { WebsocketService } from './core/services/websocket.service';
 
 // Factory function to initialize the theme service
 export function initializeTheme(themeService: ThemeService) {
@@ -33,6 +34,7 @@ export const appConfig: ApplicationConfig = {
         // Add HTTP interceptors here if needed
       ])
     ),
+    // WebSocket service is provided in root and initializes itself
     // Initialize theme service
     {
       provide: 'themeInitializer',
