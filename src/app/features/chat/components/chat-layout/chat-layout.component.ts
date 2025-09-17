@@ -1,11 +1,11 @@
-import { Component, OnInit, OnDestroy, inject } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { RouterModule, Router, ActivatedRoute } from '@angular/router';
-import { Observable, Subject, takeUntil } from 'rxjs';
+import { Observable, Subject, takeUntil, tap } from 'rxjs';
 import { ChatService } from '../../services/chat.service';
 import { RoomListComponent } from '../room-list/room-list.component';
 import { ChatRoom } from '../../models/room.model';
@@ -29,16 +29,28 @@ export class ChatLayoutComponent implements OnInit, OnDestroy {
   private chatService = inject(ChatService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
+  private cdr = inject(ChangeDetectorRef);
   private destroy$ = new Subject<void>();
 
-  rooms$: Observable<ChatRoom[]>;
-  currentRoom$: Observable<ChatRoom | null>;
+  rooms: ChatRoom[] = [];
+  currentRoom: ChatRoom | null = null;
   isMobile = false;
   showSidebar = true;
 
   constructor() {
-    this.rooms$ = this.chatService.getRooms();
-    this.currentRoom$ = this.chatService.activeRoom$;
+    this.chatService.getRooms().pipe(
+      takeUntil(this.destroy$)
+    ).subscribe(rooms => {
+      this.rooms = rooms;
+      this.cdr.detectChanges();
+    });
+
+    this.chatService.activeRoom$.pipe(
+      takeUntil(this.destroy$)
+    ).subscribe(room => {
+      this.currentRoom = room;
+      this.cdr.detectChanges();
+    });
   }
 
   ngOnInit(): void {
@@ -47,9 +59,15 @@ export class ChatLayoutComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    // Complete the destroy$ subject to clean up all subscriptions
     this.destroy$.next();
     this.destroy$.complete();
+    
+    // Remove the window resize event listener
     window.removeEventListener('resize', this.checkMobileView.bind(this));
+    
+    // Clean up any other resources if needed
+    // The WebSocket service is provided at the root level, so it will be cleaned up by Angular
   }
 
   private checkMobileView(): void {

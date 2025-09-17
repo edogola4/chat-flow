@@ -1,0 +1,403 @@
+import { Injectable, OnDestroy } from '@angular/core';
+import { 
+  BehaviorSubject, 
+  Observable, 
+  Subject, 
+  fromEvent, 
+  merge, 
+  of, 
+  Subscriber,
+  Observer,
+  PartialObserver
+} from 'rxjs';
+import { 
+  filter, 
+  map, 
+  tap, 
+  shareReplay, 
+  takeUntil, 
+  finalize, 
+  catchError, 
+  first, 
+  distinctUntilChanged 
+} from 'rxjs/operators';
+
+export interface WebSocketMessage<T = any> {
+  type: string;
+  payload: T;
+  id?: string; // Optional message ID for request/response correlation
+}
+
+@Injectable({
+  providedIn: 'root'
+})
+export class WebsocketService implements OnDestroy {
+  private socket: WebSocket | null = null;
+  /** Subject for WebSocket messages */
+  public readonly messageSubject = new Subject<WebSocketMessage>();
+  private connectionStatus = new BehaviorSubject<boolean>(false);
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelay = 3000;
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  private messageQueue: Array<{
+    type: string;
+    payload: unknown;
+    resolve: (value: unknown) => void;
+    reject: (reason?: unknown) => void;
+  }> = [];
+  private isConnecting = false;
+  private readonly destroy$ = new Subject<void>();
+
+  // Public observable for connection status
+  public connectionStatus$ = this.connectionStatus.asObservable();
+  
+  // Public observable for incoming messages
+  public messages$: Observable<WebSocketMessage> = this.messageSubject.asObservable();
+
+  constructor() {
+    this.connect();
+  }
+
+
+  // Connect to WebSocket server
+  private connect(): void {
+    if (this.isConnecting) {
+      console.log('WebSocket connection already in progress');
+      return;
+    }
+
+    try {
+      this.isConnecting = true;
+      // Close existing connection if any
+      this.disconnect();
+
+      // Add a small delay before reconnecting to prevent tight loops
+      if (this.reconnectAttempts > 0) {
+        const delay = Math.min(
+          this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+          30000 // Max 30s delay
+        );
+        console.log(`Waiting ${delay}ms before reconnecting...`);
+        this.reconnectTimeout = setTimeout(() => {
+          this.attemptConnection();
+        }, delay);
+      } else {
+        this.attemptConnection();
+      }
+    } catch (error) {
+      console.error('Error initializing WebSocket:', error);
+      this.connectionStatus.next(false);
+      this.isConnecting = false;
+      this.handleReconnect();
+    }
+  }
+
+  private _sendMessageDirectly<T, R>(
+    type: string, 
+    payload: T, 
+    observer?: PartialObserver<R> | ((value: R) => void)
+  ): void {
+    const safeObserver: PartialObserver<R> = observer 
+      ? typeof observer === 'function' 
+        ? { next: observer } 
+        : observer 
+      : {};
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      const error = new Error('WebSocket is not connected');
+      console.error('Cannot send message - WebSocket not open');
+      
+if (typeof safeObserver.next === 'function') {
+        safeObserver.next(error as any);
+      } else if (safeObserver.error) {
+        safeObserver.error(error);
+      }
+      return;
+    }
+
+    try {
+      const message = { type, payload };
+      const messageString = JSON.stringify(message);
+      
+      console.log('Sending WebSocket message:', messageString);
+      this.socket.send(messageString);
+      
+      // If we're not waiting for a response, complete immediately
+      if (typeof safeObserver.next === 'function') {
+        safeObserver.next(undefined as any);
+      }
+      if (safeObserver.complete) {
+        safeObserver.complete();
+      }
+    } catch (error) {
+      console.error('Error sending WebSocket message:', error);
+      
+if (typeof safeObserver.next === 'function') {
+        safeObserver.next(error as any);
+      } else if (safeObserver.error) {
+        safeObserver.error(error);
+      }
+    }
+  }
+
+  private attemptConnection(): void {
+    try {
+      console.log('Attempting to connect to WebSocket server...');
+      this.socket = new WebSocket('ws://localhost:3001');
+
+      this.socket.onopen = () => {
+        console.log('WebSocket connected');
+        this.isConnecting = false;
+        this.connectionStatus.next(true);
+        this.reconnectAttempts = 0;
+        if (this.reconnectTimeout) {
+          clearTimeout(this.reconnectTimeout);
+          this.reconnectTimeout = null;
+        }
+        
+        // Process any queued messages now that we're connected
+        this.processMessageQueue();
+      };
+
+      // Add error handler
+      this.socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        this.connectionStatus.next(false);
+        this.handleReconnect();
+      };
+
+      // Add close handler
+      this.socket.onclose = (event) => {
+        console.log(`WebSocket closed: ${event.code} ${event.reason || 'No reason provided'}`);
+        this.connectionStatus.next(false);
+        this.handleReconnect();
+      };
+
+      this.socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          this.messageSubject.next(message);
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+    } catch (error) {
+      console.error('Error initializing WebSocket:', error);
+      this.connectionStatus.next(false);
+      this.handleReconnect();
+    }
+  }
+
+  // Handle reconnection logic
+  private handleReconnect(): void {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('Max reconnection attempts reached');
+      this.isConnecting = false;
+      this.connectionStatus.next(false);
+      return;
+    }
+
+    this.reconnectAttempts++;
+    const delay = Math.min(
+      this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+      30000 // Max 30s delay
+    );
+    
+    console.log(`Attempting to reconnect in ${delay}ms (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+    
+    this.reconnectTimeout = setTimeout(() => {
+      this.connect();
+    }, delay);
+  }
+
+  // Send a message to the WebSocket server and optionally wait for a response
+  public sendMessage<T = unknown, R = T>(type: string, payload: T, waitForResponse: boolean = false): Observable<R> | void {
+    // If we're not waiting for a response, just queue the message if not connected
+    if (!waitForResponse) {
+      if (!this.isConnected()) {
+        console.warn('WebSocket is not connected. Message queued for sending when connected:', type, payload);
+        // Queue the message for sending when connected
+        this.messageQueue.push({
+          type,
+          payload,
+          resolve: () => {},
+          reject: (err: any) => console.error('Error sending queued message:', err)
+        });
+        
+        // Try to reconnect if not already connecting
+        if (!this.socket || this.socket.readyState === WebSocket.CLOSED) {
+          this.connect();
+        }
+        return;
+      }
+    } else {
+      // For messages that need a response, return an Observable that will handle the queuing
+      return new Observable<T>(subscriber => {
+        const sendOrQueue = () => {
+          if (this.isConnected()) {
+            this._sendMessageDirectly(type, payload, subscriber);
+          } else {
+            console.warn('WebSocket is not connected. Message queued for sending when connected:', type, payload);
+            this.messageQueue.push({
+              type,
+              payload,
+              resolve: (value: unknown) => {
+                subscriber.next(value);
+                subscriber.complete();
+              },
+              reject: (err: any) => {
+                subscriber.error(err);
+              }
+            });
+            
+            // Try to reconnect if not already connecting
+            if (!this.socket || this.socket.readyState === WebSocket.CLOSED) {
+              this.connect();
+            }
+          }
+        };
+        
+        sendOrQueue();
+        
+        return () => {
+          // Cleanup if the observable is unsubscribed before completion
+          this.messageQueue = this.messageQueue.filter(
+            item => item.type !== type || item.payload !== payload
+          );
+        };
+      });
+    }
+
+    // If we get here, we're connected and can send the message directly
+    if (waitForResponse) {
+      return new Observable<T>(subscriber => {
+        // First, set up the response handler
+        const subscription = this.messageSubject.pipe(
+          filter((msg: WebSocketMessage) => 
+            msg && (msg.type === `${type}_RESPONSE` || msg.type === 'ERROR')
+          ),
+          takeUntil(this.destroy$),
+          first()
+        ).subscribe({
+          next: (response: WebSocketMessage) => {
+            if (response.type === 'ERROR') {
+              subscriber.error(response.payload);
+            } else {
+              subscriber.next(response.payload as R);
+              subscriber.complete();
+            }
+          },
+          error: (error: any) => subscriber.error(error)
+        });
+
+        // Then send the message
+        this._sendMessageDirectly(type, payload, {
+          next: () => {},
+          error: (err: any) => subscriber.error(err),
+          complete: () => {}
+        });
+
+        return () => subscription.unsubscribe();
+      });
+    } else {
+      // For non-waiting messages, just send directly
+      this._sendMessageDirectly<T, R>(type, payload, undefined);
+      return undefined;
+    }
+  }
+
+  // Listen for messages of a specific type
+  public onMessage<T = any>(messageType?: string): Observable<T> {
+    return this.messageSubject.pipe(
+      filter((message: WebSocketMessage<T>) => !messageType || message.type === messageType),
+      map((message: WebSocketMessage<T>) => message.payload)
+    );
+  }
+  
+  // Listen for reconnection events
+  public onReconnect(): Observable<boolean> {
+    return this.connectionStatus.pipe(
+      distinctUntilChanged(),
+      filter(connected => connected === true)
+    );
+  }
+
+  // Close the WebSocket connection
+  public close(): void {
+    this.disconnect();
+  }
+  
+  // Alias for backward compatibility
+  public send = this.sendMessage.bind(this);
+
+  // Disconnect from WebSocket server
+  public disconnect(): void {
+    if (this.socket) {
+      try {
+        // Remove all event listeners to prevent memory leaks
+        this.socket.onopen = null;
+        this.socket.onclose = null;
+        this.socket.onerror = null;
+        this.socket.onmessage = null;
+        
+        // Close the connection if it's still open
+        if (this.socket.readyState === WebSocket.OPEN) {
+          this.socket.close(1000, 'Client disconnected');
+        }
+      } catch (error) {
+        console.error('Error during WebSocket disconnection:', error);
+      } finally {
+        this.socket = null;
+      }
+    }
+    
+    // Clear any pending reconnect attempts
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    
+    this.isConnecting = false;
+    this.connectionStatus.next(false);
+  }
+
+  // Check if WebSocket is connected
+  public isConnected(): boolean {
+    return this.socket?.readyState === WebSocket.OPEN;
+  }
+
+  // Process queued messages
+  private processMessageQueue(): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN || this.messageQueue.length === 0) {
+      return;
+    }
+
+    console.log(`Processing ${this.messageQueue.length} queued messages...`);
+    
+    // Process all queued messages
+    while (this.messageQueue.length > 0) {
+      const { type, payload, resolve, reject } = this.messageQueue.shift()!;
+      
+      try {
+        const message = { type, payload };
+        const messageString = JSON.stringify(message);
+        
+        console.log('Sending queued WebSocket message:', messageString);
+        this.socket.send(messageString);
+        
+        // Resolve the promise to indicate the message was sent
+        resolve(undefined);
+      } catch (error) {
+        console.error('Error sending queued WebSocket message:', error);
+        reject(error);
+      }
+    }
+  }
+
+  // Clean up resources when service is destroyed
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+    this.disconnect();
+  }
+}

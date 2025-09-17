@@ -461,53 +461,73 @@ wss.on('connection', function connection(ws) {
   // Handle incoming messages
   ws.on('message', async function incoming(message) {
     try {
-      const { type, data, requestId } = JSON.parse(message);
-      console.log('Received:', type, data);
-      
-      const respond = (response) => {
+      let messageData;
+      try {
+        messageData = JSON.parse(message);
+      } catch (parseError) {
+        console.error('Error parsing message:', message);
         ws.send(JSON.stringify({
-          ...response,
-          requestId,
+          type: 'ERROR',
+          error: 'Invalid message format',
           timestamp: new Date().toISOString()
         }));
+        return;
+      }
+      
+      const { type, data, payload, requestId } = messageData;
+      // Support both 'data' and 'payload' properties for backward compatibility
+      const messagePayload = data || payload || {};
+
+      console.log('Received:', type, messagePayload);
+
+      const respond = (response) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            ...response,
+            requestId,
+            timestamp: new Date().toISOString()
+          }));
+        } else {
+          console.error('Cannot send response - WebSocket not open');
+        }
       };
       
       try {
         switch (type) {
           case 'AUTHENTICATE':
-            await handleAuthenticate(ws, data, respond);
+            await handleAuthenticate(ws, messagePayload, respond);
             break;
             
           case 'JOIN_ROOM':
-            await handleJoinRoom(ws, data, respond);
+            await handleJoinRoom(ws, messagePayload, respond);
             break;
             
           case 'LEAVE_ROOM':
-            await handleLeaveRoom(ws, data, respond);
+            await handleLeaveRoom(ws, messagePayload, respond);
             break;
             
           case 'SEND_MESSAGE':
-            await handleChatMessage(ws, data, respond);
+            await handleChatMessage(ws, messagePayload, respond);
             break;
             
           case 'TYPING_STATUS':
-            await handleTypingIndicator(ws, data, respond);
+            await handleTypingIndicator(ws, messagePayload, respond);
             break;
             
           case 'UPLOAD_FILE':
-            await handleFileUpload(ws, data, respond);
+            await handleFileUpload(ws, messagePayload, respond);
             break;
             
           case 'SEARCH_MESSAGES':
-            await handleSearchMessages(ws, data, respond);
+            await handleSearchMessages(ws, messagePayload, respond);
             break;
             
           case 'GET_ROOM_HISTORY':
-            await handleGetRoomHistory(ws, data, respond);
+            await handleGetRoomHistory(ws, messagePayload, respond);
             break;
             
           case 'UPDATE_PROFILE':
-            await handleUpdateProfile(ws, data, respond);
+            await handleUpdateProfile(ws, messagePayload, respond);
             break;
             
           case 'PING':

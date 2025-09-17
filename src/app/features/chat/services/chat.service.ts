@@ -14,7 +14,7 @@ import {
   catchError,
   tap
 } from 'rxjs/operators';
-import { WebsocketService, WebSocketMessage } from './websocket.service';
+import { WebsocketService, type WebSocketMessage } from './websocket.service';
 import { CreateRoomDto } from '../models/room.model';
 
 export interface User {
@@ -372,25 +372,37 @@ export class ChatService implements OnDestroy {
     });
   }
 
+  // Interface for message payload
+  private parseMessagePayload(payload: any): ChatMessage {
+    return {
+      id: payload.id || `msg-${Date.now()}`,
+      content: payload.content || '',
+      type: (payload.type || 'text') as 'text' | 'image' | 'file' | 'system',
+      senderId: payload.senderId || '',
+      senderName: payload.senderName || 'Unknown User',
+      roomId: payload.roomId || '',
+      timestamp: payload.timestamp ? new Date(payload.timestamp) : new Date(),
+      reactions: Array.isArray(payload.reactions) ? payload.reactions : [],
+      edited: payload.edited || false,
+      editedAt: payload.editedAt ? new Date(payload.editedAt) : undefined,
+      replyTo: payload.replyTo
+    };
+  }
+
   // Handle incoming WebSocket messages
   private handleIncomingMessage(message: WebSocketMessage): void {
-    if (!message || !message.type) return;
+    if (!message?.type) return;
 
     switch (message.type) {
       case 'NEW_MESSAGE':
         if (!message.payload) return;
         
-        const chatMessage: ChatMessage = {
-          id: message.payload.id || `msg-${Date.now()}`,
-          content: message.payload.content,
-          type: (message.payload.type || 'text') as 'text' | 'image' | 'file' | 'system',
-          senderId: message.payload.senderId,
-          senderName: message.payload.senderName,
-          roomId: message.payload.roomId,
-          timestamp: new Date(message.payload.timestamp || Date()),
-          reactions: message.payload.reactions || []
-        };
-        this.addMessageToRoom(chatMessage);
+        try {
+          const chatMessage = this.parseMessagePayload(message.payload);
+          this.addMessageToRoom(chatMessage);
+        } catch (error) {
+          console.error('Error processing incoming message:', error);
+        }
         break;
         
       case 'USER_JOINED':

@@ -23,8 +23,8 @@
       </div>
 
       <app-room-list 
-        [rooms]="(rooms$ | async) || []" 
-        [currentRoom]="currentRoom$ | async"
+        [rooms]="rooms" 
+        [currentRoom]="currentRoom"
         (roomSelected)="onRoomSelect($event)">
       </app-room-list>
     </mat-sidenav>
