@@ -12,7 +12,9 @@ import {
   shareReplay, 
   takeUntil,
   catchError,
-  tap
+  tap,
+  filter,
+  take
 } from 'rxjs/operators';
 import { WebsocketService, type WebSocketMessage } from './websocket.service';
 import { CreateRoomDto } from '../models/room.model';
@@ -123,34 +125,58 @@ export class ChatService implements OnDestroy {
 
   constructor() {
     this.initializeWebSocketHandlers();
-    this.initializeDefaultRooms();
+  }
+
+  /**
+   * Ensures WebSocket connection is established before proceeding
+   * @returns Observable that completes when connected
+   */
+  ensureConnected(): Observable<boolean> {
+    if (this.websocketService.isConnected()) {
+      return of(true);
+    }
+
+    return this.websocketService.connectionStatus$.pipe(
+      filter((connected: boolean) => connected === true),
+      take(1),
+      catchError((error: any) => {
+        console.error('Failed to establish WebSocket connection:', error);
+        return throwError(() => new Error('Failed to connect to chat server'));
+      })
+    );
   }
 
   private initializeDefaultRooms(): void {
-    const defaultRooms: ChatRoom[] = [
-      {
-        id: 'general',
-        name: 'General',
-        description: 'General discussion',
-        type: 'public',
-        members: [this.currentUserId],
-        createdAt: new Date(),
-        unreadCount: 0,
-        isActive: true
-      },
-      {
-        id: 'random',
-        name: 'Random',
-        description: 'Off-topic discussions',
-        type: 'public',
-        members: [this.currentUserId],
-        createdAt: new Date(),
-        unreadCount: 0,
-        isActive: false
-      }
-    ];
-    
-    this.rooms = defaultRooms;
+    this.ensureConnected().subscribe(() => {
+      const defaultRooms: ChatRoom[] = [
+        {
+          id: 'general',
+          name: 'General',
+          description: 'General discussion',
+          type: 'public',
+          members: [this.currentUserId],
+          createdAt: new Date(),
+          unreadCount: 0,
+          isActive: true
+        },
+        {
+          id: 'random',
+          name: 'Random',
+          description: 'Off-topic discussions',
+          type: 'public',
+          members: [this.currentUserId],
+          createdAt: new Date(),
+          unreadCount: 0,
+          isActive: false
+        }
+      ];
+      
+      this.rooms = defaultRooms;
+      this.stateSubject.next({
+        ...this.stateSubject.value,
+        rooms: this.rooms
+      });
+    });
     this.stateSubject.next({
       ...this.stateSubject.value,
       rooms: this.rooms

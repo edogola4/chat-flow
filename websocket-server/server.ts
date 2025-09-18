@@ -4,12 +4,10 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { RateLimiterMemory } from 'rate-limiter-flexible';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 
-// Get the directory name in ES module
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// Get the directory name in ES module - keeping for potential future use
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = dirname(__filename);
 
 // Create a custom interface that extends the WebSocket type
 // Extend WebSocket type with our custom properties
@@ -89,6 +87,17 @@ const BaseMessageSchema = z.object({
   timestamp: z.number().optional(),
 });
 
+// Heartbeat message schemas
+const PingMessageSchema = BaseMessageSchema.extend({
+  type: z.literal('PING'),
+  payload: z.object({}).optional(),
+});
+
+const PongMessageSchema = BaseMessageSchema.extend({
+  type: z.literal('PONG'),
+  payload: z.object({}).optional(),
+});
+
 const AuthMessageSchema = BaseMessageSchema.extend({
   type: z.literal('AUTHENTICATE'),
   payload: z.object({
@@ -136,7 +145,7 @@ type WsMessage = z.infer<typeof BaseMessageSchema> & {
 };
 
 class ChatServer {
-  private wss: any; // Temporarily using any to bypass type issues
+  private wss: WebSocketServer; // Temporarily using any to bypass type issues
   private clients: Map<string, Client> = new Map();
   private users: Map<string, User> = new Map();
   private rooms: Map<string, Room> = new Map();
@@ -145,11 +154,13 @@ class ChatServer {
   private typingUsers: Map<string, Set<string>> = new Map(); // roomId -> Set<userId>
   private messageHistory: Map<string, Message[]> = new Map(); // roomId -> Message[]
   private readonly MAX_MESSAGES_PER_ROOM = 1000;
-  private readonly PING_INTERVAL = 30000; // 30 seconds
-  private pingInterval: NodeJS.Timeout | null = null;
 
-  constructor(server: http.Server | https.Server) {
-    this.wss = new WebSocket.Server({ server });
+  constructor(server: http.Server | https.Server | WebSocketServer) {
+    if (server instanceof WebSocketServer) {
+      this.wss = server;
+    } else {
+      this.wss = new WebSocketServer({ server });
+    }
     this.setupEventHandlers();
     this.setupPingInterval();
     this.initializeDefaultRooms();
@@ -201,36 +212,56 @@ class ChatServer {
       this.clients.set(client.id, client);
       this.log(`New connection from ${ip} (${client.id})`);
 
-      (ws as any).on('pong', () => this.handlePong(ws as CustomWebSocket));
-      (ws as any).on('message', (data: WebSocket.Data) => this.handleMessage(ws as CustomWebSocket, data.toString()));
-      (ws as any).on('close', () => this.handleDisconnect(ws as CustomWebSocket));
-      (ws as any).on('error', (error: Error) => this.handleError(ws as CustomWebSocket, error));
+      ws.on('pong', () => this.handlePong(ws));
+      ws.on('message', (data: WebSocket.Data) => this.handleMessage(ws, data.toString()));
+      ws.on('close', () => this.handleDisconnect(ws));
+      ws.on('error', (error: Error) => this.handleError(ws, error));
     });
   }
-  handlePong(arg0: CustomWebSocket) {
-    throw new Error('Method not implemented.');
+
+  private handlePong(ws: CustomWebSocket) {
+    ws.isAlive = true;
+    ws.lastPing = Date.now();
+    
+    // Send PONG response if we received a PING
+    this.sendResponse(ws, {
+      type: 'PONG',
+      payload: {
+        timestamp: Date.now()
+      }
+    });
   }
 
   private setupPingInterval() {
-    this.pingInterval = setInterval(() => {
+    // Check for stale connections every 30 seconds
+    const interval = setInterval(() => {
       const now = Date.now();
-      (this.wss.clients as Set<CustomWebSocket>).forEach((client) => {
-        // If we haven't received a pong in 2 intervals, terminate the connection
-        if (now - client.lastPing > this.PING_INTERVAL * 2) {
-          client.terminate();
-          return;
+      this.wss.clients.forEach((ws: CustomWebSocket) => {
+        // If we haven't received a pong in 60 seconds, terminate the connection
+        if (now - ws.lastPing > 60000) {
+          this.log(`Terminating stale connection: ${ws.id}`);
+          ws.terminate();
+        } else if (ws.isAlive === false) {
+          // If we didn't receive a pong from the last ping, terminate
+          this.log(`Terminating unresponsive connection: ${ws.id}`);
+          ws.terminate();
+        } else {
+          // Mark as not alive and send a ping
+          ws.isAlive = false;
+          try {
+            ws.ping();
+          } catch (error) {
+            this.logError('Error sending ping:', error);
+            ws.terminate();
+          }
         }
-        
-        // Send ping to check if client is still alive
-        if (!client.isAlive) {
-          client.terminate();
-          return;
-        }
-
-        client.isAlive = false;
-        client.ping(() => {});
       });
-    }, this.PING_INTERVAL);
+    }, 30000);
+
+    // Clean up interval on server close
+    this.wss.on('close', () => {
+      clearInterval(interval);
+    });
   }
 
   private async handleMessage(ws: Client, data: string) {
@@ -263,8 +294,29 @@ class ChatServer {
         case 'TYPING_STATUS':
           this.handleTypingStatus(ws, message as z.infer<typeof TypingStatusSchema>);
           break;
+        case 'PING':
+          // Handle PING with PONG response
+          this.sendResponse(ws, {
+            type: 'PONG',
+            payload: {
+              timestamp: Date.now()
+            },
+            requestId: message.requestId
+          });
+          break;
+        case 'PONG':
+          // Update last ping time, but no response needed
+          ws.lastPing = Date.now();
+          break;
         default:
-          this.sendError(ws, 'UNKNOWN_MESSAGE_TYPE', `Unknown message type: ${message.type}`, message.requestId);
+          // Log unknown message type but don't disconnect the client
+          this.log(`Received unknown message type: ${message.type}`);
+          this.sendError(
+            ws, 
+            'UNKNOWN_MESSAGE_TYPE', 
+            `Unsupported message type: ${message.type}`, 
+            message.requestId
+          );
       }
     } catch (error) {
       this.handleError(ws, error);
@@ -273,28 +325,81 @@ class ChatServer {
 
   private parseMessage(data: string): WsMessage | null {
     try {
+      // Basic validation
+      if (typeof data !== 'string' || data.trim() === '') {
+        throw new Error('Empty message received');
+      }
+
+      // Parse JSON
       const message = JSON.parse(data);
       
-      // Basic validation
-      if (!message || typeof message !== 'object') {
+      // Validate message structure
+      if (!message || typeof message !== 'object' || Array.isArray(message)) {
         throw new Error('Invalid message format: expected an object');
       }
       
+      // Validate and normalize message type
       if (!message.type || typeof message.type !== 'string') {
         throw new Error('Invalid message format: missing or invalid type');
       }
       
+      // Normalize message type to uppercase
+      message.type = message.type.toUpperCase();
+      
+      // Known message types
+      const knownTypes = [
+        'AUTHENTICATE', 'JOIN_ROOM', 'LEAVE_ROOM', 
+        'SEND_MESSAGE', 'TYPING_STATUS', 'PING', 'PONG'
+      ];
+      
+      if (!knownTypes.includes(message.type)) {
+        this.log(`Received message with unknown type: ${message.type}`);
+        // Don't throw, just return the message as-is
+      }
+      
       return message as WsMessage;
     } catch (error) {
-      this.logError('Error parsing message:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logError('Error parsing message:', errorMessage, '\nRaw data:', data);
       return null;
     }
   }
 
   private handleError(ws: Client, error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = error instanceof Error ? 
+      `${error.message}\n${error.stack || ''}` : 
+      String(error);
+      
     this.logError('WebSocket error:', errorMessage);
-    ws.terminate();
+    
+    // Only terminate if the socket is in a state that can be terminated
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      try {
+        // Try to send error to client before terminating
+        this.sendError(
+          ws, 
+          'INTERNAL_ERROR', 
+          'An internal error occurred',
+          undefined
+        );
+        
+        // Give some time for the error to be sent
+        setTimeout(() => {
+          try {
+            ws.terminate();
+          } catch (e) {
+            // Ignore errors during termination
+          }
+        }, 100);
+      } catch (e) {
+        // If sending fails, just terminate
+        try {
+          ws.terminate();
+        } catch (e) {
+          // Ignore errors during termination
+        }
+      }
+    }
   }
 
   private async handleAuth(ws: Client, message: z.infer<typeof AuthMessageSchema>) {

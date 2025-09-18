@@ -10,7 +10,8 @@ import {
   filter, 
   map, 
   takeUntil,
-  timeout
+  timeout,
+  switchMap
 } from 'rxjs/operators';
 
 export const WS_ENDPOINT = 'ws://localhost:3001';
@@ -79,11 +80,34 @@ export class WebsocketService implements OnDestroy {
    * Authenticate the WebSocket connection with user credentials
    */
   authenticate(userId: string, username: string, email?: string, avatar?: string): Observable<boolean> {
-    if (!this.socket$ || this.socket$.closed) {
-      return throwError(() => new Error('WebSocket is not connected'));
-    }
-
+    // Store user info for reconnection
     this.currentUser = { userId, username };
+    
+    // If socket is not connected, try to connect first
+    if (!this.socket$ || this.socket$.closed) {
+      this.connect();
+      
+      // Wait for connection to be established
+      return this.connectionStatus$.pipe(
+        filter(connected => connected === true),
+        take(1),
+        switchMap(() => this.performAuthentication(userId, username, email, avatar)),
+        catchError(error => {
+          console.error('Authentication failed:', error);
+          this.isAuthenticated = false;
+          return of(false);
+        })
+      );
+    }
+    
+    // If already connected, just perform authentication
+    return this.performAuthentication(userId, username, email, avatar);
+  }
+  
+  private performAuthentication(userId: string, username: string, email?: string, avatar?: string): Observable<boolean> {
+    if (!this.socket$ || this.socket$.closed) {
+      return throwError(() => new Error('WebSocket connection not available'));
+    }
     
     return this.sendWithResponse<{ success: boolean }>({
       type: 'AUTHENTICATE',
@@ -91,15 +115,19 @@ export class WebsocketService implements OnDestroy {
         userId,
         username,
         email,
-        avatar
+        avatar,
+        timestamp: Date.now()
       }
-    }, 'AUTH_SUCCESS').pipe(
+    }, 'AUTH_RESPONSE').pipe(
       map(response => {
         this.isAuthenticated = response.success;
+        if (this.isAuthenticated) {
+          console.log('WebSocket authenticated successfully');
+        }
         return this.isAuthenticated;
       }),
       catchError(error => {
-        console.error('Authentication failed:', error);
+        console.error('Authentication error:', error);
         this.isAuthenticated = false;
         return of(false);
       })

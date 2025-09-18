@@ -11,7 +11,7 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatMenuModule } from '@angular/material/menu';
 import { Router, ActivatedRoute } from '@angular/router';
-import { Observable, Subject, takeUntil } from 'rxjs';
+import { Observable, Subject, takeUntil, switchMap } from 'rxjs';
 import { ChatService } from '../../services/chat.service';
 import { ChatMessage } from '../../models/message.model';
 import { ChatRoom } from '../../models/room.model';
@@ -53,12 +53,22 @@ export class ChatComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.route.paramMap.pipe(
-      takeUntil(this.destroy$)
-    ).subscribe(params => {
+    // First ensure we're connected to WebSocket
+    this.chatService.ensureConnected().pipe(
+      takeUntil(this.destroy$),
+      // Then subscribe to route params
+switchMap(() => this.route.paramMap)
+    ).subscribe((params: any) => {
       const roomId = params.get('id');
       if (roomId) {
-        this.chatService.joinRoom(roomId).subscribe();
+        this.chatService.joinRoom(roomId).subscribe({
+          next: () => {
+            console.log(`Successfully joined room: ${roomId}`);
+          },
+          error: (err) => {
+            console.error(`Failed to join room ${roomId}:`, err);
+          }
+        });
       }
     });
   }
