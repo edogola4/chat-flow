@@ -38,18 +38,26 @@ export class ChatLayoutComponent implements OnInit, OnDestroy {
   showSidebar = true;
 
   constructor() {
+    // Use async pipe in template instead of manual subscription
     this.chatService.getRooms().pipe(
       takeUntil(this.destroy$)
-    ).subscribe(rooms => {
-      this.rooms = rooms;
-      this.cdr.detectChanges();
+    ).subscribe({
+      next: (rooms) => {
+        this.rooms = rooms;
+        // Use markForCheck instead of detectChanges for better performance
+        this.cdr.markForCheck();
+      },
+      error: (err) => console.error('Error loading rooms:', err)
     });
 
     this.chatService.activeRoom$.pipe(
       takeUntil(this.destroy$)
-    ).subscribe(room => {
-      this.currentRoom = room;
-      this.cdr.detectChanges();
+    ).subscribe({
+      next: (room) => {
+        this.currentRoom = room;
+        this.cdr.markForCheck();
+      },
+      error: (err) => console.error('Error in active room subscription:', err)
     });
   }
 

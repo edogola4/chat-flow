@@ -1,9 +1,9 @@
-import { Injectable, OnDestroy, inject } from '@angular/core';
+import { Injectable, OnDestroy } from '@angular/core';
 import { 
   BehaviorSubject, 
   Observable, 
-  Subject, 
   of, 
+  Subject, 
   throwError 
 } from 'rxjs';
 import { 
@@ -14,7 +14,9 @@ import {
   catchError,
   tap,
   filter,
-  take
+  take,
+  first,
+  switchMap
 } from 'rxjs/operators';
 import { WebsocketService, type WebSocketMessage } from './websocket.service';
 import { CreateRoomDto } from '../models/room.model';
@@ -71,60 +73,163 @@ interface ChatState {
   providedIn: 'root'
 })
 export class ChatService implements OnDestroy {
-  private websocketService: WebsocketService = inject(WebsocketService);
   private destroy$ = new Subject<void>();
-  
-  private stateSubject = new BehaviorSubject<ChatState>({
-    rooms: [],
-    activeRoomId: null,
-    messages: {},
-    users: [],
-    typingUsers: {}
-  });
-
-  // Public observables
-  public state$ = this.stateSubject.asObservable();
-  public connectionStatus$: Observable<boolean> = this.websocketService.connectionStatus$;
-  
-  public activeRoom$ = this.state$.pipe(
-    map(state => state.rooms.find(room => room.id === state.activeRoomId) || null),
-    distinctUntilChanged(),
-    shareReplay(1)
-  );
-
-  public activeRoomMessages$ = this.state$.pipe(
-    map(state => {
-      const activeRoomId = state.activeRoomId;
-      return activeRoomId ? state.messages[activeRoomId] || [] : [];
-    }),
-    distinctUntilChanged(),
-    shareReplay(1)
-  );
-
-  public rooms$ = this.state$.pipe(
-    map(state => state.rooms),
-    distinctUntilChanged(),
-    shareReplay(1)
-  );
-
-  public onlineUsers$ = this.state$.pipe(
-    map(state => state.users.filter(user => user.status === 'online')),
-    distinctUntilChanged(),
-    shareReplay(1)
-  );
-
-  public typingUsers$ = this.state$.pipe(
-    map(state => state.typingUsers),
-    distinctUntilChanged(),
-    shareReplay(1)
-  );
-
+  private stateSubject: BehaviorSubject<ChatState>;
   private currentUserId = 'user-' + Math.random().toString(36).substr(2, 9);
   private currentUsername = 'Bran Don';
   private rooms: ChatRoom[] = [];
 
-  constructor() {
+  // Public observables with definite assignment assertion
+  public state$!: Observable<ChatState>;
+  public connectionStatus$!: Observable<boolean>;
+  public activeRoom$!: Observable<ChatRoom | null>;
+  public activeRoomMessages$!: Observable<ChatMessage[]>;
+  public rooms$!: Observable<ChatRoom[]>;
+  public onlineUsers$!: Observable<User[]>;
+  public typingUsers$!: Observable<{ [roomId: string]: { [userId: string]: boolean } }>;
+
+  constructor(private websocketService: WebsocketService) {
+    // Initialize state
+    this.stateSubject = new BehaviorSubject<ChatState>({
+      rooms: [],
+      activeRoomId: null,
+      messages: {},
+      users: [],
+      typingUsers: {}
+    });
+
+    // Initialize observables
+    this.initializeObservables();
+    
+    // Initialize WebSocket connection and handle authentication
+    this.initializeWebSocketConnection();
     this.initializeWebSocketHandlers();
+  }
+
+  private initializeObservables(): void {
+    // Initialize state observable
+    this.state$ = this.stateSubject.asObservable();
+    
+    // Initialize connection status observable
+    this.connectionStatus$ = this.websocketService.connectionStatus$;
+    
+    // Set up derived observables
+    this.activeRoom$ = this.createActiveRoomObservable();
+    this.activeRoomMessages$ = this.createActiveRoomMessagesObservable();
+    this.rooms$ = this.createRoomsObservable();
+    this.onlineUsers$ = this.createOnlineUsersObservable();
+    this.typingUsers$ = this.createTypingUsersObservable();
+  }
+
+  private createActiveRoomObservable(): Observable<ChatRoom | null> {
+    return this.state$.pipe(
+      map(state => state.rooms.find(room => room.id === state.activeRoomId) || null),
+      distinctUntilChanged((prev, curr) => {
+        if (prev === null && curr === null) return true;
+        if (prev === null || curr === null) return false;
+        return prev.id === curr.id;
+      }),
+      shareReplay(1)
+    );
+  }
+
+  private createActiveRoomMessagesObservable(): Observable<ChatMessage[]> {
+    return this.state$.pipe(
+      map(state => {
+        const activeRoomId = state.activeRoomId;
+        return activeRoomId ? state.messages[activeRoomId] || [] : [];
+      }),
+      distinctUntilChanged((prev, curr) => {
+        if (prev.length !== curr.length) return false;
+        return prev.every((msg, i) => msg.id === curr[i]?.id);
+      }),
+      shareReplay(1)
+    );
+  }
+
+  private createRoomsObservable(): Observable<ChatRoom[]> {
+    return this.state$.pipe(
+      map(state => state.rooms),
+      distinctUntilChanged((prev, curr) => {
+        if (prev.length !== curr.length) return false;
+        return prev.every((room, i) => room.id === curr[i]?.id);
+      }),
+      shareReplay(1)
+    );
+  }
+
+  private createOnlineUsersObservable(): Observable<User[]> {
+    return this.state$.pipe(
+      map(state => state.users.filter(user => user.status === 'online')),
+      distinctUntilChanged((prev, curr) => {
+        if (prev.length !== curr.length) return false;
+        return prev.every((user, i) => user.id === curr[i]?.id);
+      }),
+      shareReplay(1)
+    );
+  }
+
+  private createTypingUsersObservable(): Observable<{ [roomId: string]: { [userId: string]: boolean } }> {
+    return this.state$.pipe(
+      map(state => state.typingUsers),
+      distinctUntilChanged((prev, curr) => {
+        const prevKeys = Object.keys(prev);
+        const currKeys = Object.keys(curr);
+        
+        if (prevKeys.length !== currKeys.length) return false;
+        
+        return prevKeys.every(key => {
+          const prevUsers = prev[key];
+          const currUsers = curr[key];
+          
+          if (!prevUsers || !currUsers) return false;
+          
+          const prevUserIds = Object.keys(prevUsers);
+          const currUserIds = Object.keys(currUsers);
+          
+          if (prevUserIds.length !== currUserIds.length) return false;
+          
+          return prevUserIds.every(userId => prevUsers[userId] === currUsers[userId]);
+        });
+      }),
+      shareReplay(1)
+    );
+  }
+
+  private initializeWebSocketConnection(): void {
+    // Handle WebSocket connection status changes
+    this.websocketService.connectionStatus$.pipe(
+      takeUntil(this.destroy$)
+    ).subscribe(isConnected => {
+      if (isConnected) {
+        console.log('[ChatService] WebSocket connected, authenticating...');
+        // Authenticate when connected
+        this.authenticate();
+      } else {
+        console.warn('[ChatService] WebSocket disconnected');
+      }
+    });
+  }
+
+  /**
+   * Authenticate with the WebSocket server
+   * @param username Optional username (uses current username if not provided)
+   */
+  authenticate(username?: string): Observable<boolean> {
+    const authUsername = username || this.currentUsername;
+    
+    if (!authUsername) {
+      return throwError(() => new Error('No username available for authentication'));
+    }
+
+    return this.websocketService.authState$.pipe(
+      first(),
+      map(authState => authState.isAuthenticated),
+      catchError(error => {
+        console.error('[ChatService] Authentication failed:', error);
+        return throwError(() => error);
+      })
+    );
   }
 
   /**
@@ -132,7 +237,7 @@ export class ChatService implements OnDestroy {
    * @returns Observable that completes when connected
    */
   ensureConnected(): Observable<boolean> {
-    if (this.websocketService.isConnected()) {
+    if (this.websocketService.isConnected) {
       return of(true);
     }
 
@@ -240,29 +345,39 @@ export class ChatService implements OnDestroy {
       return throwError(() => new Error('Room ID is required'));
     }
 
-    // Send join message via WebSocket
-    this.websocketService.sendMessage('JOIN_ROOM', {
-      roomId,
-      username: username || this.currentUsername,
-      userId: this.currentUserId
-    });
-    
-    // Update active room
-    this.setActiveRoom(roomId);
-    
-    // Return a dummy message since we need to return Observable<ChatMessage>
-    const dummyMessage: ChatMessage = {
-      id: `sys-${Date.now()}`,
-      content: `Joined room ${roomId}`,
-      type: 'system',
-      senderId: 'system',
-      senderName: 'System',
-      roomId,
-      timestamp: new Date(),
-      reactions: []
-    };
-    
-    return of(dummyMessage);
+    // Ensure we're authenticated first
+    return this.websocketService.authState$.pipe(
+      first(),
+      switchMap((authState: { isAuthenticated: boolean; error?: string }) => {
+        if (!authState.isAuthenticated) {
+          return throwError(() => new Error(authState.error || 'Not authenticated'));
+        }
+
+        // Send join message via WebSocket
+        this.websocketService.sendMessage('JOIN_ROOM', {
+          roomId,
+          username: username || this.currentUsername,
+          userId: this.currentUserId
+        });
+        
+        // Update active room
+        this.setActiveRoom(roomId);
+        
+        // Return a dummy message since we need to return Observable<ChatMessage>
+        const dummyMessage: ChatMessage = {
+          id: `sys-${Date.now()}`,
+          content: `Joined room ${roomId}`,
+          type: 'system',
+          senderId: 'system',
+          senderName: 'System',
+          roomId,
+          timestamp: new Date(),
+          reactions: []
+        };
+        
+        return of(dummyMessage);
+      })
+    );
   }
 
   // Send a message to the current room
@@ -363,18 +478,56 @@ export class ChatService implements OnDestroy {
 
   // Initialize WebSocket event handlers
   private initializeWebSocketHandlers(): void {
+    // Clean up any existing subscription
+    this.destroy$.next();
+    
+    // Handle incoming messages
     this.websocketService.messages$.pipe(
       takeUntil(this.destroy$)
     ).subscribe({
-      next: (message: WebSocketMessage) => this.handleIncomingMessage(message),
-      error: (error: Error) => console.error('WebSocket error:', error)
+      next: (message) => this.handleIncomingMessage(message),
+      error: (error) => {
+        console.error('WebSocket error in chat service:', error);
+        // Handle reconnection or show error to user
+      },
+      complete: () => console.log('[ChatService] WebSocket subscription completed')
     });
+
+    // Handle authentication state changes
+    this.websocketService.authState$.pipe(
+      takeUntil(this.destroy$)
+    ).subscribe({
+      next: (authState) => {
+        if (authState.error) {
+          console.error('[ChatService] Authentication error:', authState.error);
+          // Handle authentication error (e.g., show error to user)
+        } else if (authState.isAuthenticated) {
+          console.log('[ChatService] Successfully authenticated');
+          // Rejoin rooms if needed after reconnection
+          this.rejoinRooms();
+        }
+      },
+      error: (error) => console.error('[ChatService] Error in auth state:', error)
+    });
+  }
+
+  private rejoinRooms(): void {
+    const state = this.stateSubject.getValue();
+    const activeRoomId = state.activeRoomId;
+    
+    // Rejoin the active room if there is one
+    if (activeRoomId) {
+      this.joinRoom(activeRoomId).subscribe({
+        error: (error) => console.error(`[ChatService] Failed to rejoin room ${activeRoomId}:`, error)
+      });
+    }
   }
 
   // Update typing status for a user in a room
   updateTypingStatus(userId: string, roomId: string, isTyping: boolean): void {
     if (!userId || !roomId) return;
     
+    // Send typing status update
     this.websocketService.sendMessage('TYPING_STATUS', {
       userId,
       roomId,

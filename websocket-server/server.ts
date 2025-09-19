@@ -48,6 +48,7 @@ interface User {
   lastSeen: Date;
   token: string;
   ip: string;
+  userAgent?: string;
 }
 
 interface Room {
@@ -404,43 +405,115 @@ class ChatServer {
 
   private async handleAuth(ws: Client, message: z.infer<typeof AuthMessageSchema>) {
     try {
-      const { token, username } = message.payload;
+      const { token, username, userAgent } = message.payload;
       
-      // In a real app, validate the token against your auth service
-      // For this example, we'll just create a user with the provided username
-      const userId = `user-${uuidv4()}`;
-      const user: User = {
-        id: userId,
-        username,
-        status: 'online',
-        lastSeen: new Date(),
-        token,
-        ip: ws.ip,
-      };
+      // Validate required fields
+      if (!username || !token) {
+        throw new Error('Username and token are required');
+      }
+
+      // Check if user already exists with this token
+      let user: User | undefined;
+      let userId: string;
+
+      // In a real app, you would validate the token against your auth service
+      // For this example, we'll use the username as the token for simplicity
+      if (token !== username) {
+        throw new Error('Invalid token');
+      }
+
+      // Check if user already exists
+      const existingUser = Array.from(this.users.values()).find(u => u.username === username);
       
-      this.users.set(userId, user);
+      if (existingUser) {
+        // Update existing user
+        user = existingUser;
+        userId = user.id;
+        user.status = 'online';
+        user.lastSeen = new Date();
+        user.ip = ws.ip;
+        // Store user agent if needed
+        const userWithAgent = { ...user, userAgent };
+        this.users.set(userId, userWithAgent);
+        
+        // Update user in the map
+        this.users.set(userId, user);
+        
+        // Disconnect any existing connection for this user
+        for (const [clientId, client] of this.clients.entries()) {
+          if (client.userId === userId && client !== ws) {
+            this.log(`Disconnecting duplicate connection for user ${username}`);
+            this.sendError(
+              client, 
+              'DUPLICATE_CONNECTION', 
+              'New connection established from another location',
+              message.requestId
+            );
+            client.terminate();
+            this.clients.delete(clientId);
+          }
+        }
+      } else {
+        // Create new user
+        userId = `user-${uuidv4()}`;
+        user = {
+          id: userId,
+          username,
+          status: 'online',
+          lastSeen: new Date(),
+          token,
+          ip: ws.ip,
+          userAgent,
+        };
+        
+        this.users.set(userId, user);
+      }
+      
+      // Update WebSocket connection with user ID
       ws.userId = userId;
+      this.clients.set(ws.id, ws);
       
       this.log(`User authenticated: ${username} (${userId})`);
       
+      // Send authentication success response
       this.sendResponse(ws, {
         type: 'AUTH_SUCCESS',
         payload: {
           userId,
           username,
           status: 'online',
+          token, // Send back the token for client storage
+          timestamp: new Date().toISOString(),
         },
         requestId: message.requestId,
       });
       
-      // Send initial state
+      // Send initial state (rooms, messages, etc.)
       this.sendInitialState(ws);
       
-      // Send initial ping
+      // Send initial ping to verify connection
       ws.ping();
       
+      // Notify other users in shared rooms about the new connection
+      this.notifyUserStatusChange(userId, 'online');
+      
     } catch (error) {
-      this.sendError(ws, 'AUTH_ERROR', error instanceof Error ? error.message : 'Authentication failed', message.requestId);
+      const errorMessage = error instanceof Error ? error.message : 'Authentication failed';
+      this.logError('Authentication error:', errorMessage);
+      
+      this.sendError(
+        ws, 
+        'AUTH_ERROR', 
+        errorMessage, 
+        message.requestId
+      );
+      
+      // Close the connection after a short delay to ensure the error is sent
+      setTimeout(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close(4000, 'Authentication failed');
+        }
+      }, 100);
     }
   }
 
@@ -652,26 +725,11 @@ class ChatServer {
     });
   }
 
-  private handleDisconnect(ws: Client) {
-    const userId = ws.userId;
-    if (!userId) {
-      this.clients.delete(ws.id);
-      return;
-    }
-
+  private notifyUserStatusChange(userId: string, status: 'online' | 'away' | 'busy' | 'offline') {
     const user = this.users.get(userId);
-    if (!user) {
-      this.clients.delete(ws.id);
-      return;
-    }
+    if (!user) return;
 
-    this.log(`User disconnected: ${user.username} (${userId})`);
-
-    // Update user status and last seen
-    user.status = 'offline';
-    user.lastSeen = new Date();
-
-    // Notify all rooms the user was in
+    // Notify all rooms the user is in
     this.rooms.forEach(room => {
       if (room.members.has(userId)) {
         this.broadcastToRoom(room.id, null, {
@@ -679,32 +737,64 @@ class ChatServer {
           payload: {
             userId: user.id,
             username: user.username,
-            status: 'offline',
+            status,
             lastSeen: user.lastSeen.toISOString(),
+            timestamp: new Date().toISOString(),
           },
         });
       }
     });
+  }
+
+  private handleDisconnect(ws: Client) {
+    const userId = ws.userId;
     
-    // Try to send an error message to the client before closing
-    if (ws.readyState === 1) { // 1 = OPEN
-      try {
-        ws.send(JSON.stringify({
-          type: 'ERROR',
-          payload: {
-            code: 'WEBSOCKET_ERROR',
-            message: 'A WebSocket error occurred',
-          },
-        }));
-      } catch (e) {
-        // Ignore errors when sending the error message
+    // Always clean up the client connection
+    this.clients.delete(ws.id);
+    
+    if (!userId) {
+      return;
+    }
+
+    const user = this.users.get(userId);
+    if (!user) {
+      return;
+    }
+
+    this.log(`User disconnected: ${user.username} (${userId})`);
+
+    // Check if user has other active connections
+    const hasOtherConnections = Array.from(this.clients.values())
+      .some(client => client.userId === userId && client !== ws);
+    
+    // Only mark as offline if this was the last connection
+    if (!hasOtherConnections) {
+      user.status = 'offline';
+      user.lastSeen = new Date();
+      
+      // Notify about status change
+      this.notifyUserStatusChange(userId, 'offline');
+    }
+    
+    // Clean up any pending operations for this connection
+    this.cleanupConnection(ws);
+  }
+  
+  private cleanupConnection(ws: Client) {
+    // Clean up any resources associated with this connection
+    // This is a placeholder for any additional cleanup needed
+    try {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.terminate();
       }
+    } catch (error) {
+      this.logError('Error during connection cleanup:', error);
     }
     
     ws.terminate();
   }
 
-  private sendInitialState(ws: Client) {
+  private sendInitialState(ws: Client): void {
     if (!ws.userId) return;
 
     const rooms = Array.from(this.rooms.values())
@@ -735,7 +825,7 @@ class ChatServer {
     type: string;
     payload: unknown;
     requestId?: string;
-  }) {
+  }): void {
     if (ws.readyState === 1) { // 1 = OPEN
       ws.send(JSON.stringify({
         ...response,
@@ -745,7 +835,7 @@ class ChatServer {
     }
   }
 
-  private sendError(ws: Client, code: string, message: string, requestId?: string) {
+  private sendError(ws: Client, code: string, message: string, requestId?: string): void {
     this.logError(`Error (${code}): ${message}`);
     this.sendResponse(ws, {
       type: 'ERROR',
@@ -809,7 +899,7 @@ const wss = new WebSocketServer({ server });
 new ChatServer(wss);
 
 // Start the server
-const PORT = process.env.PORT || 3001;
+const PORT = process.env['PORT'] ? parseInt(process.env['PORT'], 10) : 3001;
 server.listen(PORT, () => {
   console.log(`WebSocket server is running on port ${PORT}`);
 });

@@ -1,30 +1,19 @@
 import { Injectable, OnDestroy, Inject, PLATFORM_ID } from '@angular/core';
+import { Observable, Subject, BehaviorSubject, throwError, of, timer } from 'rxjs';
+import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
 import { 
-  BehaviorSubject, 
-  Observable, 
-  Subject, 
-  fromEvent, 
-  merge, 
-  of, 
-  Subscriber,
-  Observer,
-  PartialObserver,
-  Subscription,
-  throwError
-} from 'rxjs';
-import { 
+  retryWhen, 
+  delay, 
+  take, 
+  tap, 
+  catchError, 
   filter, 
   map, 
-  tap, 
-  shareReplay, 
-  takeUntil, 
+  switchMap, 
   finalize, 
-  catchError, 
-  first, 
   distinctUntilChanged,
-  retryWhen,
-  delay,
-  switchMap
+  timeout,
+  first
 } from 'rxjs/operators';
 import { isPlatformBrowser } from '@angular/common';
 import { environment } from '../../../../environments/environment';
@@ -76,6 +65,7 @@ interface QueuedMessage<T = unknown, R = unknown> {
   resolve: (value: R) => void;
   reject: (reason?: unknown) => void;
   timestamp: number;
+  shouldSend: () => boolean;
 }
 
 interface WebSocketConfig {
@@ -104,20 +94,228 @@ export class WebsocketService implements OnDestroy {
   private maxReconnectAttempts = 5;
   private reconnectAttempts = 0;
   private reconnectDelay = 3000;
-  private messageQueue: QueuedMessage[] = [];
+  private messageQueue: Array<QueuedMessage<any, any>> = [];
   private isConnecting = false;
   private reconnectTimeout: any = null;
   private readonly destroy$ = new Subject<void>();
   private config: WebSocketConfig;
   private heartbeatIntervalId: any = null;
   private lastHeartbeat = 0;
-  private pendingRequests = new Map<string, QueuedMessage>();
   private authToken: string | null = null;
+  private isAuthenticated = false;
+  private pendingRequests = new Map<string, QueuedMessage>();
+  private processedIndices = new Set<number>();
+  private authState = new BehaviorSubject<{ isAuthenticated: boolean; error?: string }>({ isAuthenticated: false });
+  public readonly authState$ = this.authState.asObservable();
+  
+  /**
+   * Process the message queue and send any pending messages
+   */
+  private processMessageQueue(): void {
+    if (!this.isConnected || !this.messageQueue.length) {
+      return;
+    }
+
+    const indicesToRemove: number[] = [];
+    
+    this.messageQueue.forEach((queuedMsg, index) => {
+      try {
+        if (queuedMsg.shouldSend()) {
+          this.send({
+            type: queuedMsg.type,
+            payload: queuedMsg.payload,
+            requestId: queuedMsg.requestId
+          } as WebSocketMessage);
+          indicesToRemove.push(index);
+          this.processedIndices.add(index);
+        }
+      } catch (error) {
+        console.error('Error processing queued message:', error);
+        indicesToRemove.push(index);
+      }
+    });
+
+    // Remove processed messages in reverse order to avoid index shifting
+    indicesToRemove
+      .sort((a, b) => b - a) // Sort in descending order
+      .forEach(index => {
+        this.messageQueue.splice(index, 1);
+      });
+  }
+
+  /**
+   * Send a raw message through the WebSocket
+   */
+  public send<T = unknown, R = void>(
+    message: WebSocketMessage<T>,
+    options?: string | ((error?: Error) => void) | { 
+      next?: (value: R) => void; 
+      error?: (error: any) => void; 
+      complete?: () => void;
+      timeout?: number;
+    }
+  ): void | Promise<R> {
+return this.sendMessage(message.type, message.payload, options);
+  }
+
+  /**
+   * Send a message through the WebSocket with support for callbacks, promises, and observers
+   */
+  public sendMessage<T = unknown, R = void>(
+    type: string,
+    payload: T,
+    options?: string | ((error?: Error) => void) | { 
+      next?: (value: R) => void; 
+      error?: (error: any) => void; 
+      complete?: () => void;
+      timeout?: number;
+    }
+  ): void | Promise<R> {
+    // If WebSocket is not connected, return error or queue the message
+    if (!this.isConnected) {
+      const error = new Error('WebSocket is not connected');
+      if (typeof options === 'function') {
+        (options as (error: Error) => void)(error);
+        return;
+      }
+      if (typeof options === 'object' && options?.error) {
+        options.error(error);
+        return;
+      }
+      if (typeof options === 'function') {
+        (options as (error: Error) => void)(error);
+        return;
+      }
+      throw error;
+    }
+
+    // If not authenticated and not an auth message, queue it
+    if (!this.isAuthenticated && type !== MessageType.AUTHENTICATE) {
+      const requestId = this.generateRequestId();
+      const queuedMessage: QueuedMessage<T, R> = {
+        type,
+        payload,
+        requestId,
+        resolve: (value: R) => {},
+        reject: (error: any) => {},
+        timestamp: Date.now(),
+        shouldSend: () => this.isConnected
+      };
+
+      this.messageQueue.push(queuedMessage);
+      
+      if (typeof options === 'object' && (options?.next || options?.error || options?.complete)) {
+        // Handle observer pattern
+        queuedMessage.resolve = (value: unknown) => {
+          options.next?.(value as R);
+          options.complete?.();
+        };
+        queuedMessage.reject = (error: any) => {
+          options.error?.(error);
+        };
+        return;
+      }
+      
+      // Handle promise pattern
+      return new Promise<R>((resolve, reject) => {
+        queuedMessage.resolve = resolve;
+        queuedMessage.reject = reject;
+      });
+    }
+
+    const requestId = this.generateRequestId();
+    const message: WebSocketMessage<T> = {
+      type,
+      payload,
+      requestId,
+      timestamp: Date.now()
+    };
+
+    // Implementation for callback-style API
+    if (typeof options === 'function') {
+      const callback = options as (error?: Error) => void;
+      
+      try {
+        this.sendRaw(JSON.stringify(message))
+          .then(() => callback())
+          .catch(error => callback(error));
+      } catch (error) {
+        callback(error as Error);
+      }
+      return;
+    }
+
+    // Implementation for Promise/Async API
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+      return new Promise<R | void>((resolve, reject) => {
+        this.sendRaw(JSON.stringify(message))
+          .then(() => resolve())
+          .catch(reject);
+      }) as Promise<R>;
+    }
+
+    // Implementation for Observer-based API
+    const { next, error: onError, complete } = options;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutMs = options.timeout || 30000; // Default 30s timeout
+
+    // Set up timeout
+    if (timeoutMs) {
+      timeoutId = setTimeout(() => {
+        const error = new Error(`Request ${type} timed out after ${timeoutMs}ms`);
+        this.pendingRequests.delete(requestId);
+        onError?.(error);
+      }, timeoutMs);
+    }
+
+    // Add to pending requests
+    this.pendingRequests.set(requestId, {
+      type,
+      payload,
+      requestId,
+      resolve: ((value: R) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (next) next(value);
+        if (complete) complete();
+      }) as (value: unknown) => void,
+      reject: (error: any) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (onError) onError(error);
+        if (error) {
+          console.error('WebSocket message error:', error);
+        }
+      },
+      timestamp: Date.now(),
+      shouldSend: () => this.isConnected
+    });
+
+    // Send the message
+    this.sendRaw(JSON.stringify(message))
+      .catch(error => {
+        if (timeoutId) clearTimeout(timeoutId);
+        this.pendingRequests.delete(requestId);
+        onError?.(error);
+      });
+  }
+
+  /**
+   * Generate a unique request ID
+   */
+  private generateRequestId(): string {
+    return Date.now().toString(36) + Math.random().toString(36).substring(2, 15);
+  }
 
   // Public observables
   public readonly connectionStatus$ = this.connectionStatus.asObservable();
   public readonly messages$ = this.messageSubject.asObservable();
   public readonly isConnected$ = this.connectionStatus.asObservable().pipe(distinctUntilChanged());
+
+  /**
+   * Check if the WebSocket is currently connected
+   */
+  public get isConnected(): boolean {
+    return this.socket?.readyState === WebSocket.OPEN;
+  }
 
   constructor(@Inject(PLATFORM_ID) private platformId: Object) {
     this.config = { ...DEFAULT_CONFIG };
@@ -127,9 +325,12 @@ export class WebsocketService implements OnDestroy {
     }
   }
 
-  /**
-   * Initialize WebSocket connection
-   */
+  public ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+    this.disconnect();
+  }
+
   private connect(): void {
     if (this.isConnecting || !isPlatformBrowser(this.platformId)) {
       return;
@@ -171,11 +372,113 @@ export class WebsocketService implements OnDestroy {
     this.reconnectAttempts = 0;
     this.connectionStatus.next(true);
     this.startHeartbeat();
-    this.processMessageQueue();
-    this.authenticate();
+    
+    // Reset authentication state on new connection
+    this.isAuthenticated = false;
+    this.authState.next({ isAuthenticated: false });
+    
+    // If we have a token, authenticate immediately
+    if (this.authToken) {
+      this.authenticate().subscribe({
+        next: () => {
+          console.log('[WebSocket] Authentication successful');
+          this.processMessageQueue();
+        },
+        error: (err) => {
+          console.error('[WebSocket] Authentication failed:', err);
+          this.authState.next({ 
+            isAuthenticated: false, 
+            error: err.message || 'Authentication failed' 
+          });
+        }
+      });
+    }
   }
-  authenticate() {
-    throw new Error('Method not implemented.');
+
+  /**
+   * Authenticate with the WebSocket server
+   * @param username Username to authenticate with
+   * @returns Observable that completes when authentication is done
+   */
+  public authenticate(username?: string): Observable<boolean> {
+    if (username) {
+      this.authToken = username; // Using username as token for simplicity
+    }
+
+    if (!this.authToken) {
+      const error = new Error('No username provided for authentication');
+      this.authState.next({ isAuthenticated: false, error: error.message });
+      return throwError(() => error);
+    }
+
+    return new Observable<boolean>(subscriber => {
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+        const error = new Error('WebSocket is not connected');
+        this.authState.next({ isAuthenticated: false, error: error.message });
+        subscriber.error(error);
+        return;
+      }
+
+      const subscription = this.messages$.pipe(
+        filter((msg): msg is WebSocketMessage<{ success: boolean; message?: string }> => 
+          msg.type === MessageType.AUTH_SUCCESS || msg.type === MessageType.AUTH_ERROR
+        ),
+        first(),
+        timeout(10000) // 10 second timeout for auth response
+      ).subscribe({
+        next: (message) => {
+          if (message.type === MessageType.AUTH_SUCCESS) {
+            this.isAuthenticated = true;
+            this.authState.next({ isAuthenticated: true });
+            subscriber.next(true);
+            subscriber.complete();
+          } else {
+            const error = new Error(message.payload?.message || 'Authentication failed');
+            this.handleAuthError(error);
+            subscriber.error(error);
+          }
+        },
+        error: (err) => {
+          this.handleAuthError(err);
+          subscriber.error(err);
+        }
+      });
+
+      // Send authentication request
+      try {
+        this.sendMessage(
+          MessageType.AUTHENTICATE,
+          { 
+            username: this.authToken,
+            timestamp: Date.now()
+          },
+          (error) => {
+            if (error) {
+              subscription.unsubscribe();
+              const err = new Error(`Failed to send auth request: ${error.message}`);
+              this.handleAuthError(err);
+              subscriber.error(err);
+            }
+          }
+        );
+      } catch (error) {
+        subscription.unsubscribe();
+        const err = error instanceof Error ? error : new Error('Unknown error during authentication');
+        this.handleAuthError(err);
+        subscriber.error(err);
+      }
+
+      return () => subscription.unsubscribe();
+    });
+  }
+
+  private handleAuthError(error: Error): void {
+    console.error('[WebSocket] Authentication error:', error);
+    this.isAuthenticated = false;
+    this.authState.next({ 
+      isAuthenticated: false, 
+      error: error.message 
+    });
   }
 
   /**
@@ -212,28 +515,23 @@ export class WebsocketService implements OnDestroy {
    */
   private handleMessage(event: MessageEvent): void {
     try {
-      const message = JSON.parse(event.data) as WebSocketMessage;
+      const message = JSON.parse(event.data as string) as WebSocketMessage;
       this.lastHeartbeat = Date.now();
       
-      // Handle heartbeat responses
-      if (message.type === 'pong') {
+      // Check for pending requests
+      if (message.requestId && this.pendingRequests.has(message.requestId)) {
+        const request = this.pendingRequests.get(message.requestId)!;
+        this.pendingRequests.delete(message.requestId);
+        
+        if (message.type === 'ERROR') {
+          const errorPayload = message.payload as { message?: string };
+          request.reject(new Error(errorPayload?.message || 'Request failed'));
+        } else {
+          request.resolve(message.payload);
+        }
         return;
       }
-
-      // Handle request/response pattern
-      if (message.requestId && this.pendingRequests.has(message.requestId)) {
-        const pendingRequest = this.pendingRequests.get(message.requestId);
-        if (pendingRequest) {
-          this.pendingRequests.delete(message.requestId);
-          if (message.type === MessageType.ERROR) {
-            pendingRequest.reject(message.payload);
-          } else {
-            pendingRequest.resolve(message.payload);
-          }
-        }
-      }
-
-      // Emit the message to subscribers
+      
       this.messageSubject.next(message);
     } catch (error) {
       console.error('[WebSocket] Error parsing message:', error, event.data);
@@ -245,17 +543,40 @@ export class WebsocketService implements OnDestroy {
    */
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnection attempts reached. Giving up.');
+      console.error(`[WebSocket] Max reconnection attempts (${this.maxReconnectAttempts}) reached`);
       return;
     }
 
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts);
-    console.log(`Attempting to reconnect in ${delay}ms (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})...`);
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+    }
+
+    this.reconnectAttempts++;
+    const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
+    
+    console.log(`[WebSocket] Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     
     this.reconnectTimeout = setTimeout(() => {
-      this.reconnectAttempts++;
       this.connect();
     }, delay);
+  }
+
+  /**
+   * Set authentication token and reconnect if needed
+   */
+  setAuthToken(token: string): void {
+    if (this.authToken === token) {
+      return;
+    }
+    
+    this.authToken = token;
+    
+    // If connected, re-authenticate with the new token
+    if (this.connectionStatus.value) {
+      this.authenticate(token).subscribe({
+        error: (err) => console.error('[WebSocket] Re-authentication failed:', err)
+      });
+    }
   }
 
   /**
@@ -296,115 +617,44 @@ export class WebsocketService implements OnDestroy {
   }
 
   /**
-   * Process any queued messages
-   */
-  private processMessageQueue(): void {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      return;
-    }
-
-    // Process messages in the queue
-    const processedIndices: number[] = [];
-    
-    this.messageQueue.forEach((queuedMsg, index) => {
-      try {
-        const message: WebSocketMessage<unknown> = {
-          type: queuedMsg.type,
-          payload: queuedMsg.payload,
-          requestId: queuedMsg.requestId,
-          timestamp: Date.now()
-        };
-
-        this.socket?.send(JSON.stringify(message));
-        processedIndices.unshift(index);
-      } catch (error) {
-        console.error('Error sending queued message:', error);
-        queuedMsg.reject(error);
-      }
-    });
-
-    // Remove processed messages (from end to beginning to avoid index shifting issues)
-    processedIndices.forEach(index => {
-      this.messageQueue.splice(index, 1);
-    });
-  }
-
-  /**
    * Send a raw message to the WebSocket
    */
-  private sendRaw(message: string): void {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+  private sendRaw(message: string): Promise<void> {
+    if (!this.socket) {
       throw new Error('WebSocket is not connected');
     }
     
     // Check message size
-    if (message.length > this.config.maxMessageSize!) {
-      throw new Error(`Message size exceeds maximum of ${this.config.maxMessageSize} bytes`);
+    const maxSize = this.config?.maxMessageSize || 1024 * 1024; // Default 1MB
+    if (message.length > maxSize) {
+      throw new Error(`Message size exceeds maximum of ${maxSize} bytes`);
     }
     
-    this.socket.send(message);
-  }
-
-  public sendMessage<T = unknown, R = void>(
-    type: string, 
-    payload: T, 
-    observer?: PartialObserver<R>
-  ): void {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      throw new Error('WebSocket is not connected');
-    }
-
-    const messageId = Math.random().toString(36).substring(2, 15);
-    const message: WebSocketMessage<T> = {
-      id: messageId,
-      type,
-      payload,
-      timestamp: Date.now()
-    };
-
-    try {
-      this.socket.send(JSON.stringify(message));
-      
-      if (observer) {
-        // Create a timeout for the request
-        const timeout = setTimeout(() => {
-          observer.error?.(new Error('Request timed out'));
-          this.pendingRequests.delete(messageId);
-        }, 30000);
-
-        // Store the observer and timeout to handle the response
-        this.pendingRequests.set(messageId, {
-          type,
-          payload,
-          requestId: messageId,
-          resolve: (value: any) => {
-            clearTimeout(timeout);
-            observer.next?.(value);
-            observer.complete?.();
-          },
-          reject: (error: any) => {
-            clearTimeout(timeout);
-            observer.error?.(error);
-          },
-          timestamp: Date.now()
-        });
+    return new Promise((resolve, reject) => {
+      if (!this.socket) {
+        throw new Error('WebSocket is not connected');
       }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      observer?.error?.(error);
-    }
+      this.socket.send(message);
+      resolve();
+    });
   }
 
-  public onMessage<T = unknown>(messageType?: string): Observable<WebSocketMessage<T>> {
-    return this.messageSubject.pipe(
-      filter((message): message is WebSocketMessage<T> => {
+  /**
+   * Check if a message matches a specific type and has a payload
+   */
+  public hasMessageOfType<T = unknown>(messageType?: string): Observable<boolean> {
+    return this.messages$.pipe(
+      map((message) => {
         const matchesType = !messageType || message.type === messageType;
-        const hasPayload = 'payload' in message;
+        const hasPayload = message.payload !== undefined;
         return matchesType && hasPayload;
       })
     );
   }
   
+  /**
+   * Observable that emits when the WebSocket reconnects
+   */
   public onReconnect(): Observable<boolean> {
     return this.connectionStatus.pipe(
       distinctUntilChanged(),
@@ -412,20 +662,27 @@ export class WebsocketService implements OnDestroy {
     );
   }
 
+  /**
+   * Close the WebSocket connection
+   */
   public close(): void {
     this.disconnect();
   }
   
-  public send = this.sendMessage.bind(this);
 
+  /**
+   * Disconnect the WebSocket and clean up resources
+   */
   public disconnect(): void {
     if (this.socket) {
       try {
+        // Clear all event handlers
         this.socket.onopen = null;
         this.socket.onclose = null;
         this.socket.onerror = null;
         this.socket.onmessage = null;
         
+        // Close the connection if it's still open
         if (this.socket.readyState === WebSocket.OPEN) {
           this.socket.close(1000, 'Client disconnected');
         }
@@ -436,23 +693,14 @@ export class WebsocketService implements OnDestroy {
       }
     }
     
+    // Clear any pending reconnection attempts
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
     
+    // Update connection status
     this.isConnecting = false;
     this.connectionStatus.next(false);
-  }
-
-  public isConnected(): boolean {
-    return this.socket?.readyState === WebSocket.OPEN;
-  }
-
-  ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
-    this.disconnect();
-    this.cleanup();
   }
 }
