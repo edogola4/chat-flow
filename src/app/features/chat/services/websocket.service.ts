@@ -46,6 +46,8 @@ export enum MessageType {
   USER_JOINED = 'USER_JOINED',
   USER_LEFT = 'USER_LEFT',
   USER_STATUS_CHANGED = 'USER_STATUS_CHANGED',
+  UPDATE_USER_STATUS = 'UPDATE_USER_STATUS',
+  STATUS_UPDATED = 'STATUS_UPDATED',
   ERROR = 'ERROR',
   INITIAL_STATE = 'INITIAL_STATE'
 }
@@ -470,6 +472,22 @@ return this.sendMessage(message.type, message.payload, options);
 
       return () => subscription.unsubscribe();
     });
+  }
+
+  updateUserStatus(status: 'online' | 'away' | 'busy' | 'offline'): void {
+    if (this.connectionStatus.value) {
+      this.sendMessage(MessageType.UPDATE_USER_STATUS, { status });
+    }
+  }
+
+  onUserStatusChanged(): Observable<{ userId: string; status: string }> {
+    return this.messageSubject.pipe(
+      filter(
+        (message): message is WebSocketMessage<{ userId: string; status: string }> =>
+          message.type === MessageType.STATUS_UPDATED
+      ),
+      map(message => message.payload)
+    );
   }
 
   private handleAuthError(error: Error): void {
