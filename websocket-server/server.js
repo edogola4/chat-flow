@@ -1,12 +1,18 @@
 // websocket-server/server.js
-const WebSocket = require('ws');
-const fs = require('fs');
-const path = require('path');
-const express = require('express');
-const cors = require('cors');
-const multer = require('multer');
-const morgan = require('morgan');
-const { v4: uuidv4 } = require('uuid');
+import { WebSocket, WebSocketServer } from 'ws';
+import { createServer } from 'http';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import fs from 'fs';
+import path from 'path';
+import express from 'express';
+import cors from 'cors';
+import multer from 'multer';
+import morgan from 'morgan';
+import { v4 as uuidv4 } from 'uuid';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Create Express app for file uploads
 const app = express();
@@ -53,13 +59,14 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   });
 });
 
-// Start HTTP server
-const server = app.listen(PORT, () => {
-  console.log(`HTTP server running on port ${PORT}`);
-});
+// Create HTTP server and WebSocket server
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
 
-// Create WebSocket server
-const wss = new WebSocket.Server({ server });
+// Start the server
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
 
 // Store connected clients and their room info
 const clients = new Map(); // Map<WebSocket, {userId: string, username: string, room: string, status: string, lastSeen: Date}>
@@ -572,162 +579,17 @@ wss.on('connection', function connection(ws) {
   });
 });
 
-function handleJoinRoom(ws, { roomId, username }) {
-  // Remove client from previous room if any
-  const clientData = clients.get(ws);
-  if (clientData && clientData.room) {
-    const oldRoom = rooms.get(clientData.room);
-    if (oldRoom) {
-      oldRoom.delete(ws);
-      if (oldRoom.size === 0) {
-        rooms.delete(clientData.room);
-      } else {
-        // Notify others in the old room
-        broadcastToRoom(clientData.room, ws, {
-          type: 'USER_LEFT',
-          data: { username: clientData.username, roomId: clientData.room }
-        });
-      }
-    }
-  }
-  
-  // Add client to new room
-  if (!rooms.has(roomId)) {
-    rooms.set(roomId, new Set());
-  }
-  rooms.get(roomId).add(ws);
-  
-  // Update client data
-  clients.set(ws, { username, room: roomId });
-  
-  // Notify client of successful join
-  ws.send(JSON.stringify({
-    type: 'JOINED_ROOM',
-    data: { roomId, username, success: true }
-  }));
-  
-  // Notify others in the room
-  broadcastToRoom(roomId, ws, {
-    type: 'USER_JOINED',
-    data: { username, roomId }
-  });
-  
-  console.log(`${username} joined room ${roomId}`);
-}
-
-function handleChatMessage(ws, payload) {
-  // Get client data
-  const clientData = clients.get(ws);
-  if (!clientData) {
-    console.log('Client not authenticated');
-    return;
-  }
-
-  // Extract message data with proper error handling
-  const { roomId, message, username } = payload || {};
-  
-  if (!roomId || !message || !username) {
-    console.error('Invalid message format:', { roomId, message, username });
-    return;
-  }
-  
-  if (clientData.room !== roomId) {
-    console.log(`Client not in room ${roomId}`);
-    return;
-  }
-  
-  console.log('Received chat message from', username, 'in room', roomId, ':', message);
-  
-  // Create the message object to broadcast
-  const chatMessage = {
-    type: 'NEW_MESSAGE',
-    data: {
-      id: Date.now().toString(),
-      content: message,
-      senderId: clientData.username, // Using username as ID for simplicity
-      senderName: username,
-      roomId: roomId,
-      timestamp: new Date().toISOString(),
-      type: 'text',
-      reactions: [],
-      attachments: []
-    }
-  };
-  
-  console.log('Broadcasting message:', JSON.stringify(chatMessage, null, 2));
-  
-  // Broadcast to all in the room including sender
-  broadcastToRoom(roomId, null, chatMessage);
-}
-
+// Function to handle typing indicators
 function handleTypingIndicator(ws, { roomId, username, isTyping }) {
   const clientData = clients.get(ws);
-  if (!clientData || clientData.room !== roomId) return;
+  if (!clientData || clientData.roomId !== roomId) return;
   
   broadcastToRoom(roomId, ws, {
     type: 'TYPING_INDICATOR',
-    data: { username, isTyping, roomId }
+    username,
+    isTyping,
+    timestamp: new Date().toISOString()
   });
-}
-
-function handleLeaveRoom(ws, { roomId, username }) {
-  const room = rooms.get(roomId);
-  if (room) {
-    room.delete(ws);
-    if (room.size === 0) {
-      rooms.delete(roomId);
-    } else {
-      // Notify others in the room
-      broadcastToRoom(roomId, ws, {
-        type: 'USER_LEFT',
-        data: { username, roomId }
-      });
-    }
-  }
-  
-  // If this was the last room for the client, remove them
-  if (clients.get(ws)?.room === roomId) {
-    clients.delete(ws);
-  }
-  
-  console.log(`${username} left room ${roomId}`);
-}
-
-function broadcastToRoom(roomId, excludeWs, message) {
-  const room = rooms.get(roomId);
-  if (!room) {
-    console.log(`Room ${roomId} not found`);
-    return;
-  }
-  
-  console.log(`Broadcasting to room ${roomId}:`, message);
-  
-  // Create a clean message object with default values
-  const cleanMessage = {
-    type: message.type,
-    data: {
-      // Set default values first
-      content: message.data.message || '',  // Support both content and message fields
-      sender: message.data.username || 'Unknown',
-      roomId: roomId,
-      timestamp: new Date().toISOString(),
-      // Then spread the original data to override defaults
-      ...message.data
-    }
-  };
-  
-  const messageStr = JSON.stringify(cleanMessage);
-  
-  let sentCount = 0;
-  room.forEach(client => {
-    if (client !== excludeWs && client.readyState === WebSocket.OPEN) {
-      client.send(messageStr);
-      sentCount++;
-    }
-  });
-  
-  console.log(`Message sent to ${sentCount} clients in room ${roomId}`);
-  console.log('Message content:', cleanMessage.data.content || cleanMessage.data.message || 'No content');
 }
 
 // Broadcast a message to all clients in a room except the sender
