@@ -33,6 +33,7 @@
     "@angular/cli": "^19.1.7",
     "@angular/compiler-cli": "^19.1.0",
     "@types/jasmine": "~5.1.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^24.5.2",
     "@types/socket.io-client": "^1.4.36",
     "@types/uuid": "^10.0.0",
