@@ -40,7 +40,50 @@
         </button>
       </mat-menu>
     </div>
+    @if (currentUser) {
+      <div class="user-status-container">
+        <button mat-icon-button [matMenuTriggerFor]="statusMenu" matTooltip="Change status">
+          <app-user-status-indicator [user]="{ status: currentUser.status }" [showText]="true"></app-user-status-indicator>
+        </button>
+        <mat-menu #statusMenu="matMenu">
+          <button mat-menu-item (click)="setUserStatus('online')">
+            <app-user-status-indicator [user]="{ status: 'online' }" [showText]="true"></app-user-status-indicator>
+            <span>Online</span>
+          </button>
+          <button mat-menu-item (click)="setUserStatus('away')">
+            <app-user-status-indicator [user]="{ status: 'away' }" [showText]="true"></app-user-status-indicator>
+            <span>Away</span>
+          </button>
+          <button mat-menu-item (click)="setUserStatus('busy')">
+            <app-user-status-indicator [user]="{ status: 'busy' }" [showText]="true"></app-user-status-indicator>
+            <span>Busy</span>
+          </button>
+          <button mat-menu-item (click)="setUserStatus('offline')">
+            <app-user-status-indicator [user]="{ status: 'offline' }" [showText]="true"></app-user-status-indicator>
+            <span>Offline</span>
+          </button>
+        </mat-menu>
+      </div>
+    }
   </mat-toolbar>
+
+  <!-- Online Users Sidebar -->
+  <div class="online-users">
+    <h3>Online Users</h3>
+    <mat-list>
+      @for (user of onlineUsers$ | async; track user.id) {
+        <mat-list-item>
+          <app-user-status-indicator [user]="{ status: user.status }" [showText]="false"></app-user-status-indicator>
+          <div mat-line>{{ user.username || 'Anonymous' }}</div>
+          @if (user.status === 'offline' && user.lastSeen) {
+            <div mat-line class="user-status">
+              Last seen {{ getLastSeen(user) }}
+            </div>
+          }
+        </mat-list-item>
+      }
+    </mat-list>
+  </div>
 
   <!-- Messages container -->
   <div class="messages-container">
