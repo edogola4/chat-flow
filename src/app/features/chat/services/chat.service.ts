@@ -88,6 +88,9 @@ export class ChatService implements OnDestroy {
   public onlineUsers$!: Observable<User[]>;
   public typingUsers$!: Observable<{ [roomId: string]: { [userId: string]: boolean } }>;
 
+  private statusUpdateInterval: any;
+  private readonly STATUS_UPDATE_INTERVAL = 30000; // 30 seconds
+
   constructor(private websocketService: WebsocketService) {
     // Initialize state
     this.stateSubject = new BehaviorSubject<ChatState>({
@@ -104,6 +107,9 @@ export class ChatService implements OnDestroy {
     // Initialize WebSocket connection and handle authentication
     this.initializeWebSocketConnection();
     this.initializeWebSocketHandlers();
+    
+    // Setup status change listener
+    this.setupStatusChangeListener();
   }
 
   private initializeObservables(): void {
@@ -160,12 +166,10 @@ export class ChatService implements OnDestroy {
 
   private createOnlineUsersObservable(): Observable<User[]> {
     return this.state$.pipe(
-      map(state => state.users.filter(user => user.status === 'online')),
-      distinctUntilChanged((prev, curr) => {
-        if (prev.length !== curr.length) return false;
-        return prev.every((user, i) => user.id === curr[i]?.id);
-      }),
-      shareReplay(1)
+      map(state => state.users.filter(user => user.status !== 'offline')),
+      distinctUntilChanged((prev, curr) => 
+        JSON.stringify(prev) === JSON.stringify(curr)
+      )
     );
   }
 
@@ -291,7 +295,6 @@ export class ChatService implements OnDestroy {
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
-    // No need to manually disconnect as the WebSocket service manages its own connection
   }
 
   // Get messages for a specific room
@@ -665,5 +668,38 @@ export class ChatService implements OnDestroy {
       ...state,
       typingUsers
     });
+  }
+
+  private setupStatusChangeListener(): void {
+    // Listen for user status changes from the WebSocket service
+    this.websocketService.onUserStatusChanged()
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(({ userId, status }) => {
+        const currentState = this.stateSubject.value;
+        const userIndex = currentState.users.findIndex(u => u.id === userId);
+        
+        if (userIndex > -1) {
+          const updatedUsers = [...currentState.users];
+          updatedUsers[userIndex] = {
+            ...updatedUsers[userIndex],
+            status: status as 'online' | 'away' | 'busy' | 'offline',
+            lastSeen: status === 'offline' ? new Date() : updatedUsers[userIndex].lastSeen
+          };
+          
+          this.stateSubject.next({
+            ...currentState,
+            users: updatedUsers
+          });
+        }
+      });
+
+    // Set up periodic status updates
+    this.statusUpdateInterval = setInterval(() => {
+      this.updateUserPresence();
+    }, this.STATUS_UPDATE_INTERVAL);
+  }
+
+  private updateUserPresence(): void {
+    this.websocketService.updateUserStatus('online');
   }
 }
