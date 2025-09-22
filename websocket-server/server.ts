@@ -88,6 +88,14 @@ const BaseMessageSchema = z.object({
   timestamp: z.number().optional(),
 });
 
+// Status update message schema
+const StatusUpdateSchema = BaseMessageSchema.extend({
+  type: z.literal('UPDATE_USER_STATUS'),
+  payload: z.object({
+    status: z.enum(['online', 'away', 'busy', 'offline'])
+  })
+});
+
 // Heartbeat message schemas
 const PingMessageSchema = BaseMessageSchema.extend({
   type: z.literal('PING'),
@@ -309,6 +317,9 @@ class ChatServer {
           // Update last ping time, but no response needed
           ws.lastPing = Date.now();
           break;
+        case 'UPDATE_USER_STATUS':
+          this.handleStatusUpdate(ws, message as z.infer<typeof StatusUpdateSchema>);
+          break;
         default:
           // Log unknown message type but don't disconnect the client
           this.log(`Received unknown message type: ${message.type}`);
@@ -350,7 +361,7 @@ class ChatServer {
       // Known message types
       const knownTypes = [
         'AUTHENTICATE', 'JOIN_ROOM', 'LEAVE_ROOM', 
-        'SEND_MESSAGE', 'TYPING_STATUS', 'PING', 'PONG'
+        'SEND_MESSAGE', 'TYPING_STATUS', 'PING', 'PONG', 'UPDATE_USER_STATUS'
       ];
       
       if (!knownTypes.includes(message.type)) {
@@ -723,6 +734,43 @@ class ChatServer {
         isTyping,
       },
     });
+  }
+
+  private handleStatusUpdate(ws: Client, message: z.infer<typeof StatusUpdateSchema>) {
+    if (!ws.userId) {
+      this.sendError(ws, 'UNAUTHORIZED', 'User not authenticated');
+      return;
+    }
+
+    const user = this.users.get(ws.userId);
+    if (!user) {
+      this.sendError(ws, 'USER_NOT_FOUND', 'User not found');
+      return;
+    }
+
+    const { status } = message.payload;
+    const previousStatus = user.status;
+    
+    // Update user status
+    user.status = status;
+    user.lastSeen = new Date();
+
+    // Notify all users in the same rooms about the status change
+    this.rooms.forEach(room => {
+      if (room.members.has(user.id)) {
+        this.broadcastToRoom(room.id, null, {
+          type: 'STATUS_UPDATED',
+          payload: {
+            userId: user.id,
+            status: user.status,
+            lastSeen: user.lastSeen.toISOString(),
+            username: user.username
+          }
+        });
+      }
+    });
+
+    this.log(`User ${user.username} status changed from ${previousStatus} to ${status}`);
   }
 
   private notifyUserStatusChange(userId: string, status: 'online' | 'away' | 'busy' | 'offline') {
