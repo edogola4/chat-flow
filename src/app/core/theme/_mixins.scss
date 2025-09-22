@@ -1,0 +1,269 @@
+// Import variables first
+@use './variables' as *;
+
+// Media Query Mixins
+@mixin sm {
+  @media (min-width: $breakpoint-sm) { @content; }
+}
+
+@mixin md {
+  @media (min-width: $breakpoint-md) { @content; }
+}
+
+@mixin lg {
+  @media (min-width: $breakpoint-lg) { @content; }
+}
+
+@mixin xl {
+  @media (min-width: $breakpoint-xl) { @content; }
+}
+
+@mixin xxl {
+  @media (min-width: $breakpoint-2xl) { @content; }
+}
+
+// Typography Mixins
+@mixin text-xs {
+  font-size: $font-size-xs;
+  line-height: 1.5;
+}
+
+@mixin text-sm {
+  font-size: $font-size-sm;
+  line-height: 1.5;
+}
+
+@mixin text-base {
+  font-size: $font-size-base;
+  line-height: 1.5;
+}
+
+@mixin text-lg {
+  font-size: $font-size-lg;
+  line-height: 1.5;
+}
+
+@mixin text-xl {
+  font-size: $font-size-xl;
+  line-height: 1.5;
+}
+
+@mixin text-2xl {
+  font-size: $font-size-2xl;
+  line-height: 1.25;
+}
+
+@mixin text-3xl {
+  font-size: $font-size-3xl;
+  line-height: 1.25;
+}
+
+@mixin text-4xl {
+  font-size: $font-size-4xl;
+  line-height: 1.25;
+}
+
+// Flexbox Mixins
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@mixin flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+@mixin flex-col {
+  display: flex;
+  flex-direction: column;
+}
+
+@mixin flex-col-center {
+  @include flex-col;
+  align-items: center;
+  justify-content: center;
+}
+
+// Button Mixins
+@mixin button-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: $font-weight-medium;
+  border-radius: $border-radius;
+  transition: $transition-normal;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  border: 1px solid transparent;
+  padding: $spacing-2 $spacing-4;
+  @include text-sm;
+
+  &:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba($primary, 0.2);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+@mixin button-primary {
+  @include button-base;
+  background-color: $primary;
+  color: $white;
+
+  &:hover:not(:disabled) {
+    background-color: darken($primary, 5%);
+  }
+
+  &:active:not(:disabled) {
+    background-color: darken($primary, 10%);
+  }
+}
+
+@mixin button-outline {
+  @include button-base;
+  background-color: transparent;
+  border-color: $gray-300;
+  color: $gray-700;
+
+  &:hover:not(:disabled) {
+    background-color: $gray-100;
+  }
+
+  &:active:not(:disabled) {
+    background-color: $gray-200;
+  }
+}
+
+// Avatar Mixin
+@mixin avatar($size) {
+  width: $size;
+  height: $size;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: $gray-200;
+  color: $gray-700;
+  font-weight: $font-weight-medium;
+  flex-shrink: 0;
+}
+
+// Card Mixin
+@mixin card {
+  background: $white;
+  border-radius: $border-radius-lg;
+  box-shadow: $shadow-md;
+  padding: $spacing-6;
+  transition: $transition-normal;
+
+  &:hover {
+    box-shadow: $shadow-lg;
+  }
+}
+
+// Form Elements
+@mixin form-input {
+  display: block;
+  width: 100%;
+  padding: $spacing-2 $spacing-3;
+  font-size: $font-size-base;
+  line-height: 1.5;
+  color: $gray-900;
+  background-color: $white;
+  background-clip: padding-box;
+  border: 1px solid $gray-300;
+  border-radius: $border-radius;
+  transition: $transition-normal;
+
+  &:focus {
+    border-color: $primary;
+    outline: 0;
+    box-shadow: 0 0 0 3px rgba($primary, 0.2);
+  }
+
+  &::placeholder {
+    color: $gray-500;
+    opacity: 1;
+  }
+
+  &:disabled,
+  &[readonly] {
+    background-color: $gray-100;
+    opacity: 1;
+  }
+}
+
+// Avatar
+@mixin avatar($size) {
+  width: $size;
+  height: $size;
+  border-radius: 50%;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: $gray-200;
+  color: $gray-700;
+  font-weight: $font-weight-medium;
+  text-transform: uppercase;
+}
+
+// Scrollbar
+@mixin scrollbar {
+  &::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: $gray-100;
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: $gray-400;
+    border-radius: 4px;
+
+    &:hover {
+      background: $gray-500;
+    }
+  }
+}
+
+// Truncate text
+@mixin truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// Status Badge
+@mixin status-badge($color) {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: $color;
+  margin-right: $spacing-2;
+  position: relative;
+  
+  &::after {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: rgba($color, 0.2);
+    top: -2px;
+    left: -2px;
+  }
+}
